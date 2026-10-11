@@ -271,6 +271,19 @@ Config.Units = {
 -- Officers make nearby redcoats reload faster.
 Config.OfficerAura = { Radius = 35, ReloadMultiplier = 0.75 }
 
+-- Formations break and scatter when an enemy gets this close to any soldier
+-- in the line, or when the line drops below BreakStrength of its starting size.
+-- Scattered soldiers run for ScatterTime seconds, then fight on their own.
+Config.Formation = {
+	BreakDistance = 22,
+	BreakStrength = 0.5,
+	ScatterTime = { 1.5, 3 },
+	ScatterSpeedMultiplier = 1.8,
+}
+
+-- Musket-armed soldiers stab with the bayonet when a foe is in arm's reach.
+Config.Bayonet = { Range = 5, Damage = 20, Cooldown = 1.5 }
+
 -- Wave composition. Line infantry spawn as formations (ranks of Regulars);
 -- everything else spawns individually across the north edge.
 export type WaveDef = {
@@ -1113,6 +1126,9 @@ type Data = {
 }
 
 local data: { [Player]: Data } = {}
+
+-- How far past the shot origin each weapon's visible muzzle sits.
+local MUZZLE_DISTANCE = { Musket = 3.6, LongRifle = 4.6, Blunderbuss = 2.6, Pistols = 1.2 }
 local gameState: Instance
 local canShop: () -> boolean = function()
 	return false
@@ -1289,7 +1305,16 @@ local function fire(player: Player, aimPoint: Vector3)
 		local flesh = Units.ApplyHit(inst, dmg, "Blue", player)
 		FX.Hit(hitAt[inst], flesh)
 	end
-	FX.Shot(origin, ends, "Blue")
+	-- Draw smoke and tracers from the visible muzzle (unless something was
+	-- hit closer than that, e.g. when standing against a wall).
+	local fxOrigin = origin
+	local muzzle = MUZZLE_DISTANCE[d.Equipped] or 0
+	local nearest = math.huge
+	for _, e in ends do
+		nearest = math.min(nearest, (e - origin).Magnitude)
+	end
+	fxOrigin = origin + forward * math.max(0, math.min(muzzle, nearest - 0.5))
+	FX.Shot(fxOrigin, ends, "Blue")
 
 	sync(player)
 	if d.Ammo[d.Equipped] <= 0 then
@@ -1414,7 +1439,83 @@ local function purchase(player: Player, kind: string, id: string?): (boolean, st
 	return false, "Unknown purchase"
 end
 
--- Give the avatar a tricorne and a musket so they look the part.
+local WOOD = Color3.fromRGB(105, 70, 40)
+local STEEL = Color3.fromRGB(150, 150, 155)
+local BRASS = Color3.fromRGB(200, 165, 70)
+
+-- Weapon shapes as { size, offset from the grip, color, material }.
+-- The grip sits at the origin and the muzzle points along -Z.
+type PieceDef = { Vector3 | CFrame | Color3 | Enum.Material }
+
+local function longGun(barrelLength: number, barrelColor: Color3, bayonet: boolean, flared: boolean): { PieceDef }
+	local pieces: { PieceDef } = {
+		{ Vector3.new(0.4, 0.55, 1.5), CFrame.new(0, -0.1, 0.55), WOOD, Enum.Material.Wood }, -- butt stock
+		{ Vector3.new(0.32, 0.36, barrelLength * 0.8), CFrame.new(0, 0, -barrelLength * 0.4), WOOD, Enum.Material.Wood }, -- fore stock
+		{ Vector3.new(0.24, 0.24, barrelLength), CFrame.new(0, 0.22, -barrelLength / 2 - 0.1), barrelColor, Enum.Material.Metal }, -- barrel
+		{ Vector3.new(0.2, 0.3, 0.35), CFrame.new(0.2, 0.25, -0.1), STEEL, Enum.Material.Metal }, -- lock
+	}
+	if bayonet then
+		table.insert(pieces, { Vector3.new(0.1, 0.1, 1.5), CFrame.new(0, 0.05, -barrelLength - 0.8), STEEL, Enum.Material.Metal })
+	end
+	if flared then
+		table.insert(pieces, { Vector3.new(0.6, 0.6, 0.45), CFrame.new(0, 0.22, -barrelLength - 0.2), barrelColor, Enum.Material.Metal })
+	end
+	return pieces
+end
+
+local function pistol(): { PieceDef }
+	return {
+		{ Vector3.new(0.3, 0.7, 0.45), CFrame.new(0, -0.25, 0.15) * CFrame.Angles(math.rad(-20), 0, 0), WOOD, Enum.Material.Wood },
+		{ Vector3.new(0.22, 0.24, 1.4), CFrame.new(0, 0.1, -0.55), STEEL, Enum.Material.Metal },
+	}
+end
+
+-- Where each weapon is held, relative to the HumanoidRootPart.
+local WEAPON_MODELS: { [string]: { { Grip: CFrame, Pieces: { PieceDef } } } } = {
+	Musket = { { Grip = CFrame.new(0.55, 0.9, -1.1), Pieces = longGun(3.8, STEEL, true, false) } },
+	LongRifle = { { Grip = CFrame.new(0.55, 0.9, -1.1), Pieces = longGun(4.8, BRASS, false, false) } },
+	Blunderbuss = { { Grip = CFrame.new(0.55, 0.9, -1.1), Pieces = longGun(2.6, BRASS, false, true) } },
+	Pistols = {
+		{ Grip = CFrame.new(1.1, 0.75, -1.3), Pieces = pistol() },
+		{ Grip = CFrame.new(-1.1, 0.75, -1.3), Pieces = pistol() },
+	},
+}
+
+local function propPart(name: string, size: Vector3, color: Color3, material: Enum.Material): Part
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Size = size
+	p.Color = color
+	p.Material = material
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Massless = true
+	p.CastShadow = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	return p
+end
+
+-- Raise both arms forward so the avatar looks like it is holding the gun.
+-- The rotation is applied in the torso's space, so it works for R6 and R15.
+local function poseArms(char: Model)
+	for _, spec in { { "RightShoulder", "Right Shoulder", 10 }, { "LeftShoulder", "Left Shoulder", -35 } } do
+		local joint = char:FindFirstChild(spec[1], true) or char:FindFirstChild(spec[2], true)
+		if joint and joint:IsA("Motor6D") then
+			local original = joint:GetAttribute("OriginalC0")
+			if typeof(original) ~= "CFrame" then
+				original = joint.C0
+				joint:SetAttribute("OriginalC0", original)
+			end
+			local c0 = original :: CFrame
+			local raise = CFrame.Angles(0, math.rad(spec[3] :: number), 0) * CFrame.Angles(math.rad(80), 0, 0)
+			joint.C0 = CFrame.new(c0.Position) * raise * c0.Rotation
+		end
+	end
+end
+
+-- Give the avatar a tricorne and the equipped firearm so they look the part.
 function PlayerManager.DressCharacter(player: Player)
 	local char = player.Character
 	local d = data[player]
@@ -1427,36 +1528,34 @@ function PlayerManager.DressCharacter(player: Player)
 			old:Destroy()
 		end
 	end
-	local hand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
+	local root = char:FindFirstChild("HumanoidRootPart")
 	local head = char:FindFirstChild("Head")
-	if hand and hand:IsA("BasePart") then
-		local length = if d.Equipped == "Pistols" then 1.4 elseif d.Equipped == "Blunderbuss" then 3.2 elseif d.Equipped == "LongRifle" then 5.2 else 4.4
-		local weapon = Instance.new("Part")
+
+	if root and root:IsA("BasePart") then
+		local weapon = Instance.new("Model")
 		weapon.Name = "PropWeapon"
-		weapon.Size = Vector3.new(0.25, 0.3, length)
-		weapon.Color = Color3.fromRGB(105, 70, 40)
-		weapon.Material = Enum.Material.Wood
-		weapon.CanCollide = false
-		weapon.CanQuery = false
-		weapon.CanTouch = false
-		weapon.Massless = true
-		weapon.CFrame = hand.CFrame * CFrame.new(0, -0.3, -length / 2 + 0.6)
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = hand
-		weld.Part1 = weapon
-		weld.Parent = weapon
+		for _, holder in WEAPON_MODELS[d.Equipped] or WEAPON_MODELS.Musket do
+			for i, piece in holder.Pieces do
+				local size, offset, color, material = piece[1] :: Vector3, piece[2] :: CFrame, piece[3] :: Color3, piece[4] :: Enum.Material
+				local p = propPart("Piece" .. i, size, color, material)
+				local c0 = holder.Grip * offset
+				p.CFrame = root.CFrame * c0
+				-- Welded to the root (never swapped out by avatar loading) so it
+				-- always points where the player is aiming.
+				local weld = Instance.new("Weld")
+				weld.Part0 = root
+				weld.Part1 = p
+				weld.C0 = c0
+				weld.Parent = p
+				p.Parent = weapon
+			end
+		end
 		weapon.Parent = char
+		poseArms(char)
 	end
+
 	if head and head:IsA("BasePart") then
-		local hat = Instance.new("Part")
-		hat.Name = "PropHat"
-		hat.Size = Vector3.new(1.9, 0.45, 1.9)
-		hat.Color = Color3.fromRGB(25, 25, 25)
-		hat.Material = Enum.Material.Fabric
-		hat.CanCollide = false
-		hat.CanQuery = false
-		hat.CanTouch = false
-		hat.Massless = true
+		local hat = propPart("PropHat", Vector3.new(1.9, 0.45, 1.9), Color3.fromRGB(25, 25, 25), Enum.Material.Fabric)
 		hat.CFrame = head.CFrame * CFrame.new(0, head.Size.Y / 2 + 0.15, 0)
 		local weld = Instance.new("WeldConstraint")
 		weld.Part0 = head
@@ -1517,6 +1616,25 @@ function PlayerManager.Spawn(player: Player)
 	PlayerManager.ApplyStats(player, false)
 	PlayerManager.DressCharacter(player)
 	sync(player)
+
+	-- Avatar clothing/bodies load in after spawning and can replace the head
+	-- and arms, so dress again once the appearance has finished loading.
+	if not player:HasAppearanceLoaded() then
+		task.spawn(function()
+			local loaded = false
+			local conn = player.CharacterAppearanceLoaded:Connect(function()
+				loaded = true
+			end)
+			local deadline = os.clock() + 10
+			while not loaded and os.clock() < deadline and player.Character == char do
+				task.wait(0.2)
+			end
+			conn:Disconnect()
+			if player.Character == char then
+				PlayerManager.DressCharacter(player)
+			end
+		end)
+	end
 end
 
 function PlayerManager.IsAlive(player: Player): boolean
@@ -1660,6 +1778,9 @@ export type Unit = {
 	BarGui: BillboardGui?,
 	Alert: TextLabel?,
 	Facing: Vector3,
+	ScatterUntil: number?,
+	ScatterDir: Vector3?,
+	NextBayonet: number?,
 }
 
 local units: { Unit } = {}
@@ -2155,6 +2276,8 @@ function Units.SpawnFormation(spec: { Ranks: number, Files: number, Officer: boo
 		NextVolley = now() + 3,
 		Officer = nil :: Unit?,
 		HoldSince = 0,
+		StartSize = 0,
+		Broken = false,
 	}
 	local spacing = 3.2
 	local frame = CFrame.lookAt(group.Center, group.Center + group.Facing)
@@ -2175,6 +2298,7 @@ function Units.SpawnFormation(spec: { Ranks: number, Files: number, Officer: boo
 		group.Officer = officer
 		table.insert(group.Members, officer)
 	end
+	group.StartSize = #group.Members
 	table.insert(groups, group)
 	return group
 end
@@ -2601,9 +2725,59 @@ local function redTarget(from: Vector3, aggro: number): Target?
 	return nearestHostile("Red", from, aggro) or storesTarget(from)
 end
 
+-- The line dissolves: every soldier runs off on his own, away from the
+-- threat and outward from the line, then turns to fight individually.
+local function breakFormation(group: any, threatPos: Vector3?, cry: string)
+	if group.Broken then
+		return
+	end
+	group.Broken = true
+	local t = now()
+	local scatter = Config.Formation.ScatterTime
+	local members = table.clone(group.Members)
+	for _, m in members do
+		m.Group = nil
+		m.SlotOffset = nil
+		if m.Aiming then
+			m.Aiming = false
+			setPose(m, "Idle")
+		end
+		local pos = m.Root.Position
+		local away = if threatPos then flatUnit(pos - threatPos, -m.Facing) else -m.Facing
+		local outward = flatUnit(pos - group.Center, away)
+		local jitter = rotateY(away, math.random(-70, 70))
+		m.ScatterDir = flatUnit(away + outward * 0.8 + jitter * 0.6, away)
+		m.ScatterUntil = t + scatter[1] + math.random() * (scatter[2] - scatter[1])
+		m.NextAttack = math.max(m.NextAttack, m.ScatterUntil + math.random() * 1.5)
+	end
+	table.clear(group.Members)
+	group.Officer = nil
+	if #members > 0 then
+		shout(members[math.random(1, #members)], cry, 2)
+	end
+end
+
+-- Returns true if the formation broke this frame.
+local function checkMorale(group: any): boolean
+	local members = group.Members
+	local breakDist = Config.Formation.BreakDistance
+	for _, m in members do
+		local threat = nearestHostile("Red", m.Root.Position, breakDist)
+		if threat then
+			breakFormation(group, threat.Position, "Scatter!")
+			return true
+		end
+	end
+	if #members <= group.StartSize * Config.Formation.BreakStrength then
+		breakFormation(group, nil, "Fall back!")
+		return true
+	end
+	return false
+end
+
 local function updateGroup(group: any, dt: number)
 	local members = group.Members
-	if #members == 0 then
+	if #members == 0 or checkMorale(group) then
 		return
 	end
 	local line = Config.Units.Regular
@@ -2732,6 +2906,16 @@ local function updateIndividual(unit: Unit, dt: number)
 		return
 	end
 
+	-- Soldiers from a broken line run before turning to fight.
+	if unit.ScatterUntil then
+		if t < unit.ScatterUntil and unit.ScatterDir then
+			moveUnit(unit, unit.ScatterDir, def.Speed * Config.Formation.ScatterSpeedMultiplier, dt)
+			return
+		end
+		unit.ScatterUntil = nil
+		unit.ScatterDir = nil
+	end
+
 	local target: Target?
 	if unit.Team == "Blue" then
 		target = nearestHostile("Blue", pos, 130)
@@ -2760,6 +2944,21 @@ local function updateIndividual(unit: Unit, dt: number)
 
 	local toTarget = flat(target.Position - pos)
 	local dir = flatUnit(toTarget, unit.Facing)
+
+	-- Too close to shoot comfortably: use the bayonet.
+	local bayonet = Config.Bayonet
+	if def.Attack == "Musket" and target.Kind ~= "Stores" and target.Distance <= bayonet.Range and t >= (unit.NextBayonet or 0) then
+		unit.NextBayonet = t + bayonet.Cooldown
+		faceTowards(unit, dir, 1)
+		FX.Slash(pos, dir)
+		if target.Kind == "Player" and target.Humanoid then
+			target.Humanoid:TakeDamage(bayonet.Damage)
+		elseif target.Kind == "Unit" and target.Unit then
+			Units.Damage(target.Unit, bayonet.Damage, unit.Owner)
+		end
+		return
+	end
+
 	local inRange = target.Distance <= def.Range
 	local ignoresCover = def.Attack == "Grenade" or def.Attack == "Cannon" or def.Attack == "Sabre"
 	local los = ignoresCover or hasLineOfSight(pos, target.Position)

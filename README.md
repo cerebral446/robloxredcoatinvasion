@@ -44,6 +44,9 @@ After you change files in `src/`, rebuild the place file with `python3 tools/bui
 - **Dodge volleys.** Redcoats raise their muskets (a "!" appears, and the officer shouts
   "Present!") and fire about a second later in the direction they aimed. Moving
   sideways makes them miss.
+- **Break their lines.** If you (or your minutemen) get within about 22 studs of a
+  formation, or it loses half its men, the line breaks: the redcoats scatter, then
+  each one fights on his own. Get too close and they'll use their bayonets.
 - **Use cover.** Stone walls, trees, rocks and houses stop musket balls.
 - **Watch for red markers.** A red circle on the ground means a grenade is about to
   land there. A red line means a field gun is about to fire along it.
@@ -55,7 +58,7 @@ After you change files in `src/`, rebuild the place file with `python3 tools/bui
 
 | Unit | Notes |
 | --- | --- |
-| Redcoat (line infantry) | Marches in formation and fires synchronized volleys |
+| Redcoat (line infantry) | Marches in formation and fires synchronized volleys. Scatters when you get close |
 | Officer | Leads a formation and makes nearby troops reload faster. Kill him first |
 | Light Infantry | Fast skirmishers that fight on their own |
 | Grenadier | Tough. Throws grenades over cover |

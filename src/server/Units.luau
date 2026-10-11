@@ -47,6 +47,9 @@ export type Unit = {
 	BarGui: BillboardGui?,
 	Alert: TextLabel?,
 	Facing: Vector3,
+	ScatterUntil: number?,
+	ScatterDir: Vector3?,
+	NextBayonet: number?,
 }
 
 local units: { Unit } = {}
@@ -542,6 +545,8 @@ function Units.SpawnFormation(spec: { Ranks: number, Files: number, Officer: boo
 		NextVolley = now() + 3,
 		Officer = nil :: Unit?,
 		HoldSince = 0,
+		StartSize = 0,
+		Broken = false,
 	}
 	local spacing = 3.2
 	local frame = CFrame.lookAt(group.Center, group.Center + group.Facing)
@@ -562,6 +567,7 @@ function Units.SpawnFormation(spec: { Ranks: number, Files: number, Officer: boo
 		group.Officer = officer
 		table.insert(group.Members, officer)
 	end
+	group.StartSize = #group.Members
 	table.insert(groups, group)
 	return group
 end
@@ -988,9 +994,59 @@ local function redTarget(from: Vector3, aggro: number): Target?
 	return nearestHostile("Red", from, aggro) or storesTarget(from)
 end
 
+-- The line dissolves: every soldier runs off on his own, away from the
+-- threat and outward from the line, then turns to fight individually.
+local function breakFormation(group: any, threatPos: Vector3?, cry: string)
+	if group.Broken then
+		return
+	end
+	group.Broken = true
+	local t = now()
+	local scatter = Config.Formation.ScatterTime
+	local members = table.clone(group.Members)
+	for _, m in members do
+		m.Group = nil
+		m.SlotOffset = nil
+		if m.Aiming then
+			m.Aiming = false
+			setPose(m, "Idle")
+		end
+		local pos = m.Root.Position
+		local away = if threatPos then flatUnit(pos - threatPos, -m.Facing) else -m.Facing
+		local outward = flatUnit(pos - group.Center, away)
+		local jitter = rotateY(away, math.random(-70, 70))
+		m.ScatterDir = flatUnit(away + outward * 0.8 + jitter * 0.6, away)
+		m.ScatterUntil = t + scatter[1] + math.random() * (scatter[2] - scatter[1])
+		m.NextAttack = math.max(m.NextAttack, m.ScatterUntil + math.random() * 1.5)
+	end
+	table.clear(group.Members)
+	group.Officer = nil
+	if #members > 0 then
+		shout(members[math.random(1, #members)], cry, 2)
+	end
+end
+
+-- Returns true if the formation broke this frame.
+local function checkMorale(group: any): boolean
+	local members = group.Members
+	local breakDist = Config.Formation.BreakDistance
+	for _, m in members do
+		local threat = nearestHostile("Red", m.Root.Position, breakDist)
+		if threat then
+			breakFormation(group, threat.Position, "Scatter!")
+			return true
+		end
+	end
+	if #members <= group.StartSize * Config.Formation.BreakStrength then
+		breakFormation(group, nil, "Fall back!")
+		return true
+	end
+	return false
+end
+
 local function updateGroup(group: any, dt: number)
 	local members = group.Members
-	if #members == 0 then
+	if #members == 0 or checkMorale(group) then
 		return
 	end
 	local line = Config.Units.Regular
@@ -1119,6 +1175,16 @@ local function updateIndividual(unit: Unit, dt: number)
 		return
 	end
 
+	-- Soldiers from a broken line run before turning to fight.
+	if unit.ScatterUntil then
+		if t < unit.ScatterUntil and unit.ScatterDir then
+			moveUnit(unit, unit.ScatterDir, def.Speed * Config.Formation.ScatterSpeedMultiplier, dt)
+			return
+		end
+		unit.ScatterUntil = nil
+		unit.ScatterDir = nil
+	end
+
 	local target: Target?
 	if unit.Team == "Blue" then
 		target = nearestHostile("Blue", pos, 130)
@@ -1147,6 +1213,21 @@ local function updateIndividual(unit: Unit, dt: number)
 
 	local toTarget = flat(target.Position - pos)
 	local dir = flatUnit(toTarget, unit.Facing)
+
+	-- Too close to shoot comfortably: use the bayonet.
+	local bayonet = Config.Bayonet
+	if def.Attack == "Musket" and target.Kind ~= "Stores" and target.Distance <= bayonet.Range and t >= (unit.NextBayonet or 0) then
+		unit.NextBayonet = t + bayonet.Cooldown
+		faceTowards(unit, dir, 1)
+		FX.Slash(pos, dir)
+		if target.Kind == "Player" and target.Humanoid then
+			target.Humanoid:TakeDamage(bayonet.Damage)
+		elseif target.Kind == "Unit" and target.Unit then
+			Units.Damage(target.Unit, bayonet.Damage, unit.Owner)
+		end
+		return
+	end
+
 	local inRange = target.Distance <= def.Range
 	local ignoresCover = def.Attack == "Grenade" or def.Attack == "Cannon" or def.Attack == "Sabre"
 	local los = ignoresCover or hasLineOfSight(pos, target.Position)

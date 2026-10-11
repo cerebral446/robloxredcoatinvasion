@@ -271,6 +271,19 @@ Config.Units = {
 -- Officers make nearby redcoats reload faster.
 Config.OfficerAura = { Radius = 35, ReloadMultiplier = 0.75 }
 
+-- Formations break and scatter when an enemy gets this close to any soldier
+-- in the line, or when the line drops below BreakStrength of its starting size.
+-- Scattered soldiers run for ScatterTime seconds, then fight on their own.
+Config.Formation = {
+	BreakDistance = 22,
+	BreakStrength = 0.5,
+	ScatterTime = { 1.5, 3 },
+	ScatterSpeedMultiplier = 1.8,
+}
+
+-- Musket-armed soldiers stab with the bayonet when a foe is in arm's reach.
+Config.Bayonet = { Range = 5, Damage = 20, Cooldown = 1.5 }
+
 -- Wave composition. Line infantry spawn as formations (ranks of Regulars);
 -- everything else spawns individually across the north edge.
 export type WaveDef = {

@@ -25,6 +25,9 @@ type Data = {
 }
 
 local data: { [Player]: Data } = {}
+
+-- How far past the shot origin each weapon's visible muzzle sits.
+local MUZZLE_DISTANCE = { Musket = 3.6, LongRifle = 4.6, Blunderbuss = 2.6, Pistols = 1.2 }
 local gameState: Instance
 local canShop: () -> boolean = function()
 	return false
@@ -201,7 +204,16 @@ local function fire(player: Player, aimPoint: Vector3)
 		local flesh = Units.ApplyHit(inst, dmg, "Blue", player)
 		FX.Hit(hitAt[inst], flesh)
 	end
-	FX.Shot(origin, ends, "Blue")
+	-- Draw smoke and tracers from the visible muzzle (unless something was
+	-- hit closer than that, e.g. when standing against a wall).
+	local fxOrigin = origin
+	local muzzle = MUZZLE_DISTANCE[d.Equipped] or 0
+	local nearest = math.huge
+	for _, e in ends do
+		nearest = math.min(nearest, (e - origin).Magnitude)
+	end
+	fxOrigin = origin + forward * math.max(0, math.min(muzzle, nearest - 0.5))
+	FX.Shot(fxOrigin, ends, "Blue")
 
 	sync(player)
 	if d.Ammo[d.Equipped] <= 0 then
@@ -326,7 +338,83 @@ local function purchase(player: Player, kind: string, id: string?): (boolean, st
 	return false, "Unknown purchase"
 end
 
--- Give the avatar a tricorne and a musket so they look the part.
+local WOOD = Color3.fromRGB(105, 70, 40)
+local STEEL = Color3.fromRGB(150, 150, 155)
+local BRASS = Color3.fromRGB(200, 165, 70)
+
+-- Weapon shapes as { size, offset from the grip, color, material }.
+-- The grip sits at the origin and the muzzle points along -Z.
+type PieceDef = { Vector3 | CFrame | Color3 | Enum.Material }
+
+local function longGun(barrelLength: number, barrelColor: Color3, bayonet: boolean, flared: boolean): { PieceDef }
+	local pieces: { PieceDef } = {
+		{ Vector3.new(0.4, 0.55, 1.5), CFrame.new(0, -0.1, 0.55), WOOD, Enum.Material.Wood }, -- butt stock
+		{ Vector3.new(0.32, 0.36, barrelLength * 0.8), CFrame.new(0, 0, -barrelLength * 0.4), WOOD, Enum.Material.Wood }, -- fore stock
+		{ Vector3.new(0.24, 0.24, barrelLength), CFrame.new(0, 0.22, -barrelLength / 2 - 0.1), barrelColor, Enum.Material.Metal }, -- barrel
+		{ Vector3.new(0.2, 0.3, 0.35), CFrame.new(0.2, 0.25, -0.1), STEEL, Enum.Material.Metal }, -- lock
+	}
+	if bayonet then
+		table.insert(pieces, { Vector3.new(0.1, 0.1, 1.5), CFrame.new(0, 0.05, -barrelLength - 0.8), STEEL, Enum.Material.Metal })
+	end
+	if flared then
+		table.insert(pieces, { Vector3.new(0.6, 0.6, 0.45), CFrame.new(0, 0.22, -barrelLength - 0.2), barrelColor, Enum.Material.Metal })
+	end
+	return pieces
+end
+
+local function pistol(): { PieceDef }
+	return {
+		{ Vector3.new(0.3, 0.7, 0.45), CFrame.new(0, -0.25, 0.15) * CFrame.Angles(math.rad(-20), 0, 0), WOOD, Enum.Material.Wood },
+		{ Vector3.new(0.22, 0.24, 1.4), CFrame.new(0, 0.1, -0.55), STEEL, Enum.Material.Metal },
+	}
+end
+
+-- Where each weapon is held, relative to the HumanoidRootPart.
+local WEAPON_MODELS: { [string]: { { Grip: CFrame, Pieces: { PieceDef } } } } = {
+	Musket = { { Grip = CFrame.new(0.55, 0.9, -1.1), Pieces = longGun(3.8, STEEL, true, false) } },
+	LongRifle = { { Grip = CFrame.new(0.55, 0.9, -1.1), Pieces = longGun(4.8, BRASS, false, false) } },
+	Blunderbuss = { { Grip = CFrame.new(0.55, 0.9, -1.1), Pieces = longGun(2.6, BRASS, false, true) } },
+	Pistols = {
+		{ Grip = CFrame.new(1.1, 0.75, -1.3), Pieces = pistol() },
+		{ Grip = CFrame.new(-1.1, 0.75, -1.3), Pieces = pistol() },
+	},
+}
+
+local function propPart(name: string, size: Vector3, color: Color3, material: Enum.Material): Part
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Size = size
+	p.Color = color
+	p.Material = material
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Massless = true
+	p.CastShadow = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	return p
+end
+
+-- Raise both arms forward so the avatar looks like it is holding the gun.
+-- The rotation is applied in the torso's space, so it works for R6 and R15.
+local function poseArms(char: Model)
+	for _, spec in { { "RightShoulder", "Right Shoulder", 10 }, { "LeftShoulder", "Left Shoulder", -35 } } do
+		local joint = char:FindFirstChild(spec[1], true) or char:FindFirstChild(spec[2], true)
+		if joint and joint:IsA("Motor6D") then
+			local original = joint:GetAttribute("OriginalC0")
+			if typeof(original) ~= "CFrame" then
+				original = joint.C0
+				joint:SetAttribute("OriginalC0", original)
+			end
+			local c0 = original :: CFrame
+			local raise = CFrame.Angles(0, math.rad(spec[3] :: number), 0) * CFrame.Angles(math.rad(80), 0, 0)
+			joint.C0 = CFrame.new(c0.Position) * raise * c0.Rotation
+		end
+	end
+end
+
+-- Give the avatar a tricorne and the equipped firearm so they look the part.
 function PlayerManager.DressCharacter(player: Player)
 	local char = player.Character
 	local d = data[player]
@@ -339,36 +427,34 @@ function PlayerManager.DressCharacter(player: Player)
 			old:Destroy()
 		end
 	end
-	local hand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
+	local root = char:FindFirstChild("HumanoidRootPart")
 	local head = char:FindFirstChild("Head")
-	if hand and hand:IsA("BasePart") then
-		local length = if d.Equipped == "Pistols" then 1.4 elseif d.Equipped == "Blunderbuss" then 3.2 elseif d.Equipped == "LongRifle" then 5.2 else 4.4
-		local weapon = Instance.new("Part")
+
+	if root and root:IsA("BasePart") then
+		local weapon = Instance.new("Model")
 		weapon.Name = "PropWeapon"
-		weapon.Size = Vector3.new(0.25, 0.3, length)
-		weapon.Color = Color3.fromRGB(105, 70, 40)
-		weapon.Material = Enum.Material.Wood
-		weapon.CanCollide = false
-		weapon.CanQuery = false
-		weapon.CanTouch = false
-		weapon.Massless = true
-		weapon.CFrame = hand.CFrame * CFrame.new(0, -0.3, -length / 2 + 0.6)
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = hand
-		weld.Part1 = weapon
-		weld.Parent = weapon
+		for _, holder in WEAPON_MODELS[d.Equipped] or WEAPON_MODELS.Musket do
+			for i, piece in holder.Pieces do
+				local size, offset, color, material = piece[1] :: Vector3, piece[2] :: CFrame, piece[3] :: Color3, piece[4] :: Enum.Material
+				local p = propPart("Piece" .. i, size, color, material)
+				local c0 = holder.Grip * offset
+				p.CFrame = root.CFrame * c0
+				-- Welded to the root (never swapped out by avatar loading) so it
+				-- always points where the player is aiming.
+				local weld = Instance.new("Weld")
+				weld.Part0 = root
+				weld.Part1 = p
+				weld.C0 = c0
+				weld.Parent = p
+				p.Parent = weapon
+			end
+		end
 		weapon.Parent = char
+		poseArms(char)
 	end
+
 	if head and head:IsA("BasePart") then
-		local hat = Instance.new("Part")
-		hat.Name = "PropHat"
-		hat.Size = Vector3.new(1.9, 0.45, 1.9)
-		hat.Color = Color3.fromRGB(25, 25, 25)
-		hat.Material = Enum.Material.Fabric
-		hat.CanCollide = false
-		hat.CanQuery = false
-		hat.CanTouch = false
-		hat.Massless = true
+		local hat = propPart("PropHat", Vector3.new(1.9, 0.45, 1.9), Color3.fromRGB(25, 25, 25), Enum.Material.Fabric)
 		hat.CFrame = head.CFrame * CFrame.new(0, head.Size.Y / 2 + 0.15, 0)
 		local weld = Instance.new("WeldConstraint")
 		weld.Part0 = head
@@ -429,6 +515,25 @@ function PlayerManager.Spawn(player: Player)
 	PlayerManager.ApplyStats(player, false)
 	PlayerManager.DressCharacter(player)
 	sync(player)
+
+	-- Avatar clothing/bodies load in after spawning and can replace the head
+	-- and arms, so dress again once the appearance has finished loading.
+	if not player:HasAppearanceLoaded() then
+		task.spawn(function()
+			local loaded = false
+			local conn = player.CharacterAppearanceLoaded:Connect(function()
+				loaded = true
+			end)
+			local deadline = os.clock() + 10
+			while not loaded and os.clock() < deadline and player.Character == char do
+				task.wait(0.2)
+			end
+			conn:Disconnect()
+			if player.Character == char then
+				PlayerManager.DressCharacter(player)
+			end
+		end)
+	end
 end
 
 function PlayerManager.IsAlive(player: Player): boolean
