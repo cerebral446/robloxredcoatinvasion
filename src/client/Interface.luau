@@ -123,6 +123,34 @@ local function buildHud()
 	refs.PhaseLabel = label({ Parent = top, Position = UDim2.fromOffset(12, 36), Size = UDim2.new(1, -24, 0, 20), Text = "" })
 	refs.StoresFill, refs.StoresText = bar(top, UDim2.fromOffset(16, 62), UDim2.new(1, -32, 0, 20), Color3.fromRGB(200, 140, 50), "Powder Stores")
 
+	-- Boss bar: shown while a general is on the field.
+	local boss = new("Frame", {
+		Parent = gui,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 144),
+		Size = UDim2.fromOffset(520, 70),
+		BackgroundColor3 = Color3.fromRGB(40, 20, 18),
+		BackgroundTransparency = 0.1,
+		Visible = false,
+	}, { corner(8), stroke(Color3.fromRGB(214, 172, 60), 3) })
+	refs.BossFrame = boss
+	refs.BossName = label({
+		Parent = boss,
+		Position = UDim2.fromOffset(12, 4),
+		Size = UDim2.new(1, -24, 0, 26),
+		Font = FONT_BOLD,
+		TextColor3 = Color3.fromRGB(255, 215, 90),
+		Text = "",
+	})
+	refs.BossTitle = label({
+		Parent = boss,
+		Position = UDim2.fromOffset(12, 29),
+		Size = UDim2.new(1, -24, 0, 14),
+		TextColor3 = Color3.fromRGB(230, 210, 180),
+		Text = "",
+	})
+	refs.BossFill, refs.BossText = bar(boss, UDim2.fromOffset(16, 46), UDim2.new(1, -32, 0, 16), RED, "")
+
 	-- Bottom left: health + money.
 	local status = new("Frame", {
 		Parent = gui,
@@ -528,6 +556,16 @@ function Interface.Update()
 		refs.HealthText.Text = "Health"
 	end
 	refs.DeadLabel.Visible = not alive and phase == "Wave"
+
+	local bossMax = gameState:GetAttribute("BossMax") or 0
+	local bossHp = gameState:GetAttribute("BossHealth") or 0
+	refs.BossFrame.Visible = bossMax > 0
+	if bossMax > 0 then
+		refs.BossName.Text = gameState:GetAttribute("BossName") or ""
+		refs.BossTitle.Text = gameState:GetAttribute("BossTitle") or ""
+		refs.BossFill.Size = UDim2.fromScale(math.clamp(bossHp / bossMax, 0, 1), 1)
+		refs.BossText.Text = if bossHp > 0 then ("%d / %d"):format(bossHp, bossMax) else "DEFEATED"
+	end
 
 	refs.MoneyLabel.Text = "$" .. (player:GetAttribute("Money") or 0)
 	local allies = player:GetAttribute("Allies") or 0

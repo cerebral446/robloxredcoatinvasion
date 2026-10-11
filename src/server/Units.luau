@@ -64,6 +64,10 @@ export type Unit = {
 	SlotAngle: number?,
 	SlotRadius: number?,
 	NextShuffle: number?,
+	NextSummon: number?,
+	NextCharge: number?,
+	ChargeUntil: number?,
+	ChargeTarget: Target?,
 }
 
 -- Redcoat strength for the current wave (see Config.GetDifficulty).
@@ -213,7 +217,7 @@ local function addHat(model: Model, root: BasePart, hat: string, headY: number, 
 	if hat == "Tricorne" then
 		addPart(model, root, "Hat", Vector3.new(1.8, 0.35, 1.8), CFrame.new(0, headY + 0.65, 0), BLACK, Enum.Material.Fabric)
 		addPart(model, root, "HatCrown", Vector3.new(1.1, 0.5, 1.1), CFrame.new(0, headY + 0.9, 0), BLACK, Enum.Material.Fabric)
-		local trim = if def.DisplayName == "Officer" or def.Team == "Blue" then GOLD else WHITE
+		local trim = if def.DisplayName == "Officer" or def.Team == "Blue" or def.Boss then GOLD else WHITE
 		addPart(model, root, "HatTrim", Vector3.new(1.85, 0.12, 1.85), CFrame.new(0, headY + 0.55, 0), trim, Enum.Material.Metal)
 	elseif hat == "Bearskin" then
 		addPart(model, root, "Bearskin", Vector3.new(1.3, 2.0, 1.3), CFrame.new(0, headY + 1.3, 0), BLACK, Enum.Material.Fabric)
@@ -515,6 +519,49 @@ local function buildDragoon(kind: string, def: Config.UnitDef, cf: CFrame): Unit
 	}
 end
 
+-- The boss: a general on a white charger, dressed in gold.
+local function buildGeneral(kind: string, def: Config.UnitDef, cf: CFrame, name: string): Unit
+	local unit = buildDragoon(kind, def, cf)
+	local model, root = unit.Model, unit.Root
+	model.Name = name
+	local grey = Color3.fromRGB(225, 222, 215)
+	for _, p in model:GetChildren() do
+		if p:IsA("BasePart") and (p.Name == "Body" or p.Name == "HorseLeg" or p.Name == "Neck" or p.Name == "HorseHead") then
+			p.Color = grey
+		end
+	end
+	addPart(model, root, "Shabraque", Vector3.new(2.7, 1.0, 2.4), CFrame.new(0, 0.85, 0.3), Color3.fromRGB(150, 15, 30), Enum.Material.Fabric)
+	addPart(model, root, "ShabraqueTrim", Vector3.new(2.75, 0.15, 2.45), CFrame.new(0, 0.38, 0.3), GOLD, Enum.Material.Metal)
+	for _, x in { -1, 1 } do
+		addPart(model, root, "Epaulette", Vector3.new(0.8, 0.25, 0.9), CFrame.new(x * 0.95, 3.15, 0.3), GOLD, Enum.Material.Metal)
+	end
+	addPart(model, root, "Sash", Vector3.new(0.3, 2.2, 1.05), CFrame.new(0, 2.2, 0.3) * CFrame.Angles(0, 0, math.rad(35)), Color3.fromRGB(130, 10, 40), Enum.Material.Fabric)
+	addPart(model, root, "Plume", Vector3.new(0.35, 0.9, 0.35), CFrame.new(0.7, 4.6, 0.3), WHITE, Enum.Material.Fabric)
+
+	-- Gold nameplate above the health bar.
+	local plate = Instance.new("BillboardGui")
+	plate.Name = "Nameplate"
+	plate.Size = UDim2.fromOffset(260, 30)
+	plate.StudsOffset = Vector3.new(0, 8.5, 0)
+	plate.AlwaysOnTop = true
+	plate.LightInfluence = 0
+	plate.MaxDistance = 400
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.Garamond
+	label.TextScaled = true
+	label.TextColor3 = Color3.fromRGB(255, 215, 90)
+	label.TextStrokeTransparency = 0.2
+	label.Text = name
+	label.Parent = plate
+	plate.Parent = root
+
+	unit.Bar.Parent.Size = UDim2.new(1.6, 0, 0, 8)
+	unit.Bar.Parent.Visible = true
+	return unit
+end
+
 local function buildCannon(kind: string, def: Config.UnitDef, cf: CFrame): Unit
 	local model = Instance.new("Model")
 	model.Name = def.DisplayName
@@ -613,7 +660,9 @@ function Units.Spawn(kind: string, position: Vector3, facing: Vector3, owner: Pl
 	local cf = CFrame.lookAt(flat(position), flat(position) + flatUnit(facing, Vector3.new(0, 0, 1)))
 
 	local unit: Unit
-	if def.Attack == "Sabre" then
+	if def.Boss then
+		unit = buildGeneral(kind, def, cf, def.DisplayName)
+	elseif def.Attack == "Sabre" then
 		unit = buildDragoon(kind, def, cf)
 	elseif def.Attack == "Cannon" then
 		unit = buildCannon(kind, def, cf)
@@ -835,6 +884,9 @@ function Units.Damage(unit: Unit, amount: number, attacker: Player?)
 	end
 	unit.Health -= amount
 	updateBar(unit)
+	if unit.Def.Boss then
+		gameState:SetAttribute("BossHealth", math.max(0, math.ceil(unit.Health)))
+	end
 	if unit.Health <= 0 then
 		Units.Kill(unit, attacker)
 	end
@@ -1035,12 +1087,17 @@ local function beginAim(unit: Unit, target: Target, aimTime: number)
 end
 
 local function officerAura(pos: Vector3): number
+	local best = 1
 	for _, u in units do
-		if u.Kind == "Officer" and not u.Dead and (u.Root.Position - pos).Magnitude <= Config.OfficerAura.Radius then
-			return Config.OfficerAura.ReloadMultiplier
+		if not u.Dead then
+			if u.Def.Boss and (u.Root.Position - pos).Magnitude <= Config.Boss.AuraRadius then
+				best = math.min(best, Config.Boss.AuraReloadMultiplier)
+			elseif u.Kind == "Officer" and (u.Root.Position - pos).Magnitude <= Config.OfficerAura.Radius then
+				best = math.min(best, Config.OfficerAura.ReloadMultiplier)
+			end
 		end
 	end
-	return 1
+	return best
 end
 
 local function executeAttack(unit: Unit)
@@ -1467,7 +1524,109 @@ local function updateBlue(unit: Unit, dt: number)
 	end
 end
 
+-- The general hangs back behind his lines firing his pistols, calls up
+-- reinforcements, and charges militia who get too close.
+local function updateGeneral(unit: Unit, dt: number)
+	local cfg = Config.Boss
+	local def = unit.Def
+	local pos = unit.Root.Position
+	local t = now()
+
+	-- Mid-charge: ride the target down.
+	if unit.ChargeUntil and t < unit.ChargeUntil and unit.ChargeTarget then
+		local target = unit.ChargeTarget
+		local tpos = target.Position
+		if target.Humanoid and target.Humanoid.RootPart then
+			tpos = target.Humanoid.RootPart.Position
+		end
+		local to = flat(tpos - pos)
+		if to.Magnitude <= 5.5 then
+			FX.Slash(pos, flatUnit(to, unit.Facing))
+			if target.Humanoid then
+				target.Humanoid:TakeDamage(cfg.ChargeDamage * difficulty.Damage)
+			end
+			unit.ChargeUntil = nil
+			setPose(unit, "Idle")
+		else
+			moveUnit(unit, to.Unit, cfg.ChargeSpeed, dt)
+		end
+		return
+	end
+	unit.ChargeUntil = nil
+
+	if unit.Aiming then
+		faceTowards(unit, unit.AimDir, dt)
+		if t >= unit.AimEnd then
+			unit.Aiming = false
+			for i = 0, cfg.PistolShots - 1 do
+				task.delay(i * 0.18, function()
+					if not unit.Dead then
+						fireMusket(unit)
+					end
+				end)
+			end
+			unit.NextAttack = t + def.Reload * reloadMult(unit)
+			setPose(unit, "Idle")
+		end
+		return
+	end
+
+	-- Call up reinforcements from the north edge.
+	if t >= (unit.NextSummon or 0) then
+		unit.NextSummon = t + cfg.SummonEvery
+		if Units.Count("Red") < cfg.SummonCap then
+			shout(unit, "Reinforce the line!", 2)
+			for i = 1, 3 do
+				local spot = Vector3.new(pos.X + (i - 2) * 6, 0, Config.Map.EnemySpawnZ + math.random() * 6)
+				Units.Spawn("LightInfantry", spot, Vector3.new(0, 0, 1))
+			end
+			if math.random() < 0.5 then
+				Units.Spawn("Grenadier", Vector3.new(pos.X, 0, Config.Map.EnemySpawnZ), Vector3.new(0, 0, 1))
+			end
+		end
+	end
+
+	-- Charge a player who strays too close.
+	if t >= (unit.NextCharge or 0) then
+		local victim = nearestHostile("Red", pos, cfg.ChargeRange, true)
+		if victim then
+			unit.NextCharge = t + cfg.ChargeEvery
+			unit.ChargeTarget = victim
+			unit.ChargeUntil = t + 2.5
+			setPose(unit, "Aim")
+			shout(unit, "Charge!", 1.5)
+			return
+		end
+	end
+
+	local target = nearestHostile("Red", pos, def.Range + 30) or storesTarget(pos)
+	if not target then
+		return
+	end
+	local dir = flatUnit(target.Position - pos, unit.Facing)
+	if target.Distance <= def.Range and t >= unit.NextAttack and hasLineOfSight(pos, target.Position) then
+		beginAim(unit, target, aimTimeFor(unit))
+		shout(unit, "Fire!", 1)
+		return
+	end
+
+	local nearest = nearestHostile("Red", pos, cfg.KeepDistance)
+	if nearest then
+		-- Too close for a general's comfort: fall back toward his lines.
+		moveUnit(unit, -flatUnit(nearest.Position - pos, unit.Facing), def.Speed * 1.3, dt)
+		faceTowards(unit, flatUnit(nearest.Position - pos, unit.Facing), dt)
+	elseif target.Distance > def.Range * 0.8 then
+		moveUnit(unit, dir, def.Speed, dt)
+	else
+		faceTowards(unit, dir, dt)
+	end
+end
+
 local function updateIndividual(unit: Unit, dt: number)
+	if unit.Def.Boss then
+		updateGeneral(unit, dt)
+		return
+	end
 	local def = unit.Def
 	local pos = unit.Root.Position
 	local t = now()
@@ -1577,6 +1736,35 @@ end
 ---------------------------------------------------------------------------
 -- Queries and lifecycle
 ---------------------------------------------------------------------------
+
+-- Bring on the wave's general. Health scales with the number of players.
+function Units.SpawnGeneral(general: { Name: string, Title: string, Quote: string }, playerCount: number): Unit
+	local unit = Units.Spawn("General", Vector3.new(0, 0, Config.Map.EnemySpawnZ - 4), Vector3.new(0, 0, 1))
+	unit.Model.Name = general.Name
+	local plate = unit.Root:FindFirstChild("Nameplate")
+	local label = plate and plate:FindFirstChildOfClass("TextLabel")
+	if label then
+		label.Text = general.Name
+	end
+	local scale = 1 + Config.Boss.HealthPerExtraPlayer * math.max(0, playerCount - 1)
+	unit.MaxHealth = math.floor(unit.MaxHealth * scale)
+	unit.Health = unit.MaxHealth
+	unit.NextSummon = now() + 10
+	unit.NextCharge = now() + 8
+	gameState:SetAttribute("BossName", general.Name)
+	gameState:SetAttribute("BossTitle", general.Title)
+	gameState:SetAttribute("BossMax", unit.MaxHealth)
+	gameState:SetAttribute("BossHealth", unit.MaxHealth)
+	shout(unit, general.Quote, 4)
+	return unit
+end
+
+-- Every formation on the field breaks and scatters (e.g. the general fell).
+function Units.RoutAll(cry: string)
+	for _, g in table.clone(groups) do
+		breakFormation(g, nil, cry)
+	end
+end
 
 -- Scale redcoat strength for this wave. Already-spawned units keep their health.
 function Units.SetWave(wave: number)

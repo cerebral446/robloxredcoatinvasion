@@ -73,7 +73,32 @@ Units.OnStoresDestroyed = function()
 	storesDestroyed = true
 end
 
+local function clearBoss()
+	gameState:SetAttribute("BossName", "")
+	gameState:SetAttribute("BossTitle", "")
+	gameState:SetAttribute("BossHealth", 0)
+	gameState:SetAttribute("BossMax", 0)
+end
+clearBoss()
+
 Units.OnKill = function(killer, unit)
+	if unit.Def.Boss then
+		-- The general is down: his whole army loses heart.
+		local name = gameState:GetAttribute("BossName") or "The general"
+		gameState:SetAttribute("BossHealth", 0)
+		Units.RoutAll("The General is down!")
+		local who = if killer then killer.DisplayName else "the militia"
+		FX.Announce(("%s has fallen to %s! +$%d for everyone"):format(name, who, Config.Boss.DefeatBonus), Color3.fromRGB(255, 215, 90))
+		for _, p in Players:GetPlayers() do
+			PlayerManager.AddMoney(p, Config.Boss.DefeatBonus)
+			PlayerManager.AddScore(p, Config.Boss.DefeatBonus)
+		end
+		task.delay(4, function()
+			if gameState:GetAttribute("BossHealth") == 0 then
+				clearBoss()
+			end
+		end)
+	end
 	if unit.Team == "Red" and killer then
 		PlayerManager.AddKill(killer, unit.Def.Bounty)
 	elseif unit.Team == "Blue" and unit.Owner then
@@ -240,6 +265,17 @@ local function buildSpawnQueue(wave: number): { SpawnEntry }
 		})
 	end
 
+	local general = Config.GetGeneral(wave)
+	if general then
+		table.insert(queue, {
+			At = 8,
+			Run = function()
+				Units.SpawnGeneral(general, #Players:GetPlayers())
+				FX.Announce(("%s, %s, takes the field!"):format(general.Name, general.Title), Color3.fromRGB(255, 215, 90))
+			end,
+		})
+	end
+
 	table.sort(queue, function(a, b)
 		return a.At < b.At
 	end)
@@ -267,6 +303,7 @@ local function resetGame()
 	gameState:SetAttribute("WaveName", "")
 	gameState:SetAttribute("ModeLocked", false)
 	gameState:SetAttribute("FinalWave", Config.Rounds.FinalWave)
+	clearBoss()
 	table.clear(modeVotes)
 	for _, p in Players:GetPlayers() do
 		p:SetAttribute("ModeVote", nil)
@@ -297,6 +334,7 @@ local function runWave(wave: number): string
 	gameState:SetAttribute("Wave", wave)
 	gameState:SetAttribute("WaveName", def.Name or "")
 	setPhase("Wave")
+	clearBoss()
 	Units.SetWave(wave)
 	FX.Announce(("Wave %d%s"):format(wave, if def.Name then " - " .. def.Name else ""), Color3.fromRGB(255, 90, 80))
 

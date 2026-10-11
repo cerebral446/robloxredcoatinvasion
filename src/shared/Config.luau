@@ -147,6 +147,39 @@ Config.Allies = {
 	ShuffleTime = { 6, 12 }, -- seconds between picking a new spot
 }
 
+-- Boss generals: famous British commanders of the American War of
+-- Independence. One rides out every `Every` waves, in this order (repeating).
+Config.Boss = {
+	Every = 10,
+	HealthPerExtraPlayer = 0.5, -- +50% health for each player beyond the first
+	PistolShots = 3,
+	AuraRadius = 70, -- redcoats near the general reload faster
+	AuraReloadMultiplier = 0.6,
+	SummonEvery = 18, -- seconds between calls for reinforcements
+	SummonCap = 90, -- no summons while this many redcoats are on the field
+	ChargeEvery = 14,
+	ChargeRange = 30,
+	ChargeSpeed = 26,
+	ChargeDamage = 40,
+	KeepDistance = 35, -- backs away from militia closer than this
+	DefeatBonus = 200, -- money and score for every player when he falls
+	Generals = {
+		{ Name = "General Thomas Gage", Title = "Governor of Massachusetts Bay", Quote = "Seize the rebels' powder!" },
+		{ Name = "General Sir William Howe", Title = "Victor of Bunker Hill", Quote = "Fix bayonets and advance!" },
+		{ Name = "General John Burgoyne", Title = "\"Gentleman Johnny\"", Quote = "This army must not retreat!" },
+		{ Name = "General Sir Henry Clinton", Title = "Commander-in-Chief, North America", Quote = "Crush this rebellion!" },
+		{ Name = "General Charles, Lord Cornwallis", Title = "The Earl", Quote = "Show these farmers no quarter!" },
+	},
+}
+
+function Config.GetGeneral(wave: number): { Name: string, Title: string, Quote: string }?
+	if wave < Config.Boss.Every or wave % Config.Boss.Every ~= 0 then
+		return nil
+	end
+	local list = Config.Boss.Generals
+	return list[((wave // Config.Boss.Every - 1) % #list) + 1]
+end
+
 -- Armed townsfolk respawned in the village every intermission.
 Config.Townsfolk = {
 	Roster = { "Townsman", "Townsman", "Townsman", "Townswoman", "Townswoman", "Townswoman", "Farmer" },
@@ -177,6 +210,7 @@ export type UnitDef = {
 	Hat: string, -- "Tricorne" | "Bearskin" | "Helmet" | "Cap" | "MobCap" | "StrawHat" | "None"
 	Scale: number?,
 	Civilian: boolean?, -- armed townsfolk: stay in the village, defend from the stockade
+	Boss: boolean?,
 	Outfit: string?, -- civilians: "Man" | "Woman" | "Farmer"
 }
 
@@ -286,6 +320,23 @@ Config.Units = {
 		Bounty = 0,
 		CoatColor = Color3.fromRGB(32, 45, 100), -- Continental blue
 		Hat = "Tricorne",
+	},
+	-- Boss: a mounted British general every Config.Boss.Every waves.
+	General = {
+		DisplayName = "General",
+		Team = "Red",
+		Health = 1500,
+		Speed = 9,
+		Attack = "Musket", -- fires a brace of pistols (3 quick shots)
+		Damage = 22,
+		Range = 70,
+		Reload = 2.6,
+		Spread = 7,
+		AimTime = 0.6,
+		Bounty = 500,
+		CoatColor = Color3.fromRGB(205, 20, 35),
+		Hat = "Tricorne",
+		Boss = true,
 	},
 	-- Armed townsfolk who defend their homes.
 	Townsman = {
@@ -444,8 +495,8 @@ function Config.GetWave(wave: number, endless: boolean?): WaveDef
 		def.Name = "The Regulars Are Coming!"
 	elseif wave == 5 then
 		def.Name = "The King's Dragoons"
-	elseif wave == 10 then
-		def.Name = "Grenadiers Advance"
+	elseif Config.GetGeneral(wave) then
+		def.Name = (Config.GetGeneral(wave) :: any).Name .. " Takes the Field"
 	elseif wave == Config.Rounds.FinalWave and not endless then
 		def.Name = "The Final Push"
 		def.Grenadier += 2

@@ -69,6 +69,32 @@ After you change files in `src/`, rebuild the place file with `python3 tools/bui
 | Grenadier | Tough. Throws grenades over cover |
 | Dragoon | Cavalry that rides down players with sabres |
 | Field Gun | Stationary artillery. Its roundshot pierces through anything in its line |
+| **General (boss)** | Every 10th wave a famous British general rides out on a white charger (see below) |
+
+### Boss generals
+
+Every 10 waves a general takes the field, in this order (the list repeats
+after wave 50):
+
+| Wave | General |
+| --- | --- |
+| 10 | General Thomas Gage, Governor of Massachusetts Bay |
+| 20 | General Sir William Howe, victor of Bunker Hill |
+| 30 | General John Burgoyne, "Gentleman Johnny" |
+| 40 | General Sir Henry Clinton, Commander-in-Chief |
+| 50 | General Charles, Lord Cornwallis |
+
+A general:
+
+- hangs back behind his lines and fires a brace of pistols
+- makes every redcoat within 70 studs reload faster
+- calls up reinforcements every 18 seconds
+- charges any player who gets within 30 studs
+
+His health shows in a boss bar at the top of the screen. It grows with the
+wave and with the number of players. When he falls, every formation on the
+field breaks and scatters, and every player gets a bonus. Tune him in
+`Config.Boss` and `Config.Units.General`.
 
 ### Shop (between waves)
 
