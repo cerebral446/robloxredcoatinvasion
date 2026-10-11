@@ -61,6 +61,13 @@ def main():
     body = "".join(
         [
             container("Workspace", "Workspace"),
+            # Future lighting gives shadows from the fires and lanterns.
+            (
+                f'<Item class="Lighting" referent="{ref()}"><Properties>'
+                '<string name="Name">Lighting</string>'
+                '<token name="Technology">4</token>'
+                "</Properties></Item>"
+            ),
             container("ReplicatedStorage", "ReplicatedStorage", container("Folder", "Shared", scripts_in(SRC / "shared"))),
             container("ServerScriptService", "ServerScriptService", scripts_in(SRC / "server")),
             container(

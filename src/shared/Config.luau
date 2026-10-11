@@ -263,7 +263,7 @@ Config.Units = {
 		Spread = 4,
 		AimTime = 0.5,
 		Bounty = 0,
-		CoatColor = Color3.fromRGB(110, 80, 50),
+		CoatColor = Color3.fromRGB(32, 45, 100), -- Continental blue
 		Hat = "Tricorne",
 	},
 } :: { [string]: UnitDef }

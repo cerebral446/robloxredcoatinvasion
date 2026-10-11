@@ -76,6 +76,8 @@ local WHITE = Color3.fromRGB(235, 232, 220)
 local BLACK = Color3.fromRGB(25, 25, 25)
 local WOOD = Color3.fromRGB(105, 70, 40)
 local STEEL = Color3.fromRGB(120, 120, 125)
+local GOLD = Color3.fromRGB(214, 172, 60)
+local BUFF = Color3.fromRGB(226, 214, 180)
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -174,12 +176,12 @@ local function addHat(model: Model, root: BasePart, hat: string, headY: number, 
 	if hat == "Tricorne" then
 		addPart(model, root, "Hat", Vector3.new(1.8, 0.35, 1.8), CFrame.new(0, headY + 0.65, 0), BLACK, Enum.Material.Fabric)
 		addPart(model, root, "HatCrown", Vector3.new(1.1, 0.5, 1.1), CFrame.new(0, headY + 0.9, 0), BLACK, Enum.Material.Fabric)
-		if def.Team == "Red" then
-			addPart(model, root, "HatTrim", Vector3.new(1.85, 0.12, 1.85), CFrame.new(0, headY + 0.55, 0), WHITE)
-		end
+		local trim = if def.DisplayName == "Officer" or def.Team == "Blue" then GOLD else WHITE
+		addPart(model, root, "HatTrim", Vector3.new(1.85, 0.12, 1.85), CFrame.new(0, headY + 0.55, 0), trim, Enum.Material.Metal)
 	elseif hat == "Bearskin" then
 		addPart(model, root, "Bearskin", Vector3.new(1.3, 2.0, 1.3), CFrame.new(0, headY + 1.3, 0), BLACK, Enum.Material.Fabric)
-		addPart(model, root, "Plate", Vector3.new(0.9, 0.9, 0.1), CFrame.new(0, headY + 0.9, -0.66), Color3.fromRGB(200, 170, 60), Enum.Material.Metal)
+		addPart(model, root, "Plate", Vector3.new(0.9, 0.9, 0.1), CFrame.new(0, headY + 0.9, -0.66), GOLD, Enum.Material.Metal)
+		addPart(model, root, "Plume", Vector3.new(0.3, 1.1, 0.3), CFrame.new(0.68, headY + 1.6, 0) * CFrame.Angles(0, 0, math.rad(-10)), Color3.fromRGB(210, 25, 30), Enum.Material.Fabric)
 	elseif hat == "Helmet" then
 		addPart(model, root, "Helmet", Vector3.new(1.25, 0.8, 1.35), CFrame.new(0, headY + 0.7, 0), BLACK, Enum.Material.Metal)
 		addPart(model, root, "Plume", Vector3.new(0.35, 0.6, 1.2), CFrame.new(0, headY + 1.25, 0.1), def.CoatColor, Enum.Material.Fabric)
@@ -248,7 +250,7 @@ local function buildSoldier(kind: string, def: Config.UnitDef, cf: CFrame): Unit
 	model.PrimaryPart = root
 
 	local coat = def.CoatColor
-	local breeches = if def.Team == "Red" then WHITE else Color3.fromRGB(170, 150, 110)
+	local breeches = if def.Team == "Red" then WHITE else BUFF
 
 	-- Legs and boots.
 	for _, x in { -0.5, 0.5 } do
@@ -258,7 +260,7 @@ local function buildSoldier(kind: string, def: Config.UnitDef, cf: CFrame): Unit
 	-- Body.
 	addPart(model, root, "Torso", Vector3.new(2, 2, 1) * s, CFrame.new(0, 0.8 * s, 0), coat, Enum.Material.Fabric)
 	addPart(model, root, "Tails", Vector3.new(2.05, 0.8, 1.05) * s, CFrame.new(0, -0.5 * s, 0.05 * s), coat, Enum.Material.Fabric)
-	local beltColor = if def.Team == "Red" then WHITE else Color3.fromRGB(190, 170, 130)
+	local beltColor = WHITE
 	for _, a in { 38, -38 } do
 		addPart(model, root, "Crossbelt", Vector3.new(0.3, 2.5, 0.08) * s, CFrame.new(0, 0.8 * s, -0.53 * s) * CFrame.Angles(0, 0, math.rad(a)), beltColor)
 	end
@@ -280,8 +282,32 @@ local function buildSoldier(kind: string, def: Config.UnitDef, cf: CFrame): Unit
 			CFrame.new(0.55 * s, 1.55 * s, -1.9 * s),
 		},
 	}
-	local _, leftWeld = addPosable(model, root, "LeftArm", Vector3.new(0.75, 2, 0.75) * s, poses.Idle[1], coat, Enum.Material.Fabric)
-	local _, rightWeld = addPosable(model, root, "RightArm", Vector3.new(0.75, 2, 0.75) * s, poses.Idle[2], coat, Enum.Material.Fabric)
+	local leftArm, leftWeld = addPosable(model, root, "LeftArm", Vector3.new(0.75, 2, 0.75) * s, poses.Idle[1], coat, Enum.Material.Fabric)
+	local rightArm, rightWeld = addPosable(model, root, "RightArm", Vector3.new(0.75, 2, 0.75) * s, poses.Idle[2], coat, Enum.Material.Fabric)
+	-- White cuffs (facings) that move with the arms.
+	for _, arm in { leftArm, rightArm } do
+		local cuff = Instance.new("Part")
+		cuff.Name = "Cuff"
+		cuff.Size = Vector3.new(0.82, 0.35, 0.82) * s
+		cuff.Color = WHITE
+		cuff.Material = Enum.Material.Fabric
+		cuff.CanCollide = false
+		cuff.CanQuery = false
+		cuff.CanTouch = false
+		cuff.Massless = true
+		cuff.CFrame = arm.CFrame * CFrame.new(0, -0.75 * s, 0)
+		local cw = Instance.new("WeldConstraint")
+		cw.Part0 = arm
+		cw.Part1 = cuff
+		cw.Parent = cuff
+		cuff.Parent = model
+	end
+	if kind == "Officer" then
+		for _, x in { -1, 1 } do
+			addPart(model, root, "Epaulette", Vector3.new(0.9, 0.25, 1.0) * s, CFrame.new(x * 1.05 * s, 1.85 * s, 0), GOLD, Enum.Material.Metal)
+		end
+		addPart(model, root, "Sash", Vector3.new(2.06, 0.3, 1.06) * s, CFrame.new(0, 0.05 * s, 0), Color3.fromRGB(150, 20, 40), Enum.Material.Fabric)
+	end
 
 	local weaponWeld: Weld? = nil
 	if def.Attack == "Musket" then

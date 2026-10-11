@@ -1,10 +1,10 @@
 -- Builds the battlefield procedurally: fields, the road, stone walls, trees,
 -- the village and the powder stores the redcoats are marching to seize.
 
-local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local SetDressing = require(script.Parent:WaitForChild("SetDressing"))
 
 local MapBuilder = {}
 
@@ -234,13 +234,7 @@ local function buildStores(): Model
 		CFrame = CFrame.new(pos + Vector3.new(10, 13, -6)),
 		Color = Color3.fromRGB(230, 230, 230),
 	}, model, false)
-	part({
-		Name = "Flag",
-		Size = Vector3.new(7, 4, 0.2),
-		CFrame = CFrame.new(pos + Vector3.new(13.75, 23.5, -6)),
-		Color = Color3.fromRGB(30, 60, 140),
-		Material = Enum.Material.Fabric,
-	}, model, false)
+	SetDressing.StripesFlag(CFrame.new(pos + Vector3.new(13.75, 23.5, -6)), 7, 4.2, model)
 
 	model.PrimaryPart = building
 	model:SetAttribute("IsStores", true)
@@ -390,14 +384,9 @@ function MapBuilder.Build(): (Folder, Model)
 	}, decorFolder, false)
 
 	local stores = buildStores()
+	SetDressing.Build(mapFolder, coverFolder, decorFolder, m.NorthEdge, m.HalfWidth)
 
 	mapFolder.Parent = workspace
-
-	-- Warm late-afternoon light.
-	Lighting.ClockTime = 16.5
-	Lighting.Brightness = 2.2
-	Lighting.OutdoorAmbient = Color3.fromRGB(140, 130, 115)
-	Lighting.GlobalShadows = true
 
 	math.randomseed(os.clock() * 1000)
 

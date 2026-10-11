@@ -6,6 +6,7 @@ local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local SoundService = game:GetService("SoundService")
 local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
 
 local Effects = {}
 
@@ -158,6 +159,36 @@ local function explosion(pos: Vector3, radius: number)
 	for _ = 1, 3 do
 		smoke(pos + Vector3.new(math.random() - 0.5, 1, math.random() - 0.5) * radius * 0.4, radius * 0.5, 2)
 	end
+	-- Big blasts leave the ground burning for a few seconds.
+	if radius >= 6 then
+		local scorch = basicPart(Vector3.new(0.1, radius * 1.2, radius * 1.2), Color3.fromRGB(35, 30, 25))
+		scorch.Shape = Enum.PartType.Cylinder
+		scorch.CFrame = CFrame.new(pos.X, 0.22, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+		scorch.Transparency = 0.25
+		scorch.Parent = folder
+		local flame = basicPart(Vector3.one * 0.5, Color3.new())
+		flame.Transparency = 1
+		flame.Position = Vector3.new(pos.X, 0.8, pos.Z)
+		flame.Parent = folder
+		local fire = Instance.new("Fire")
+		fire.Size = 4
+		fire.Heat = 6
+		fire.Color = Color3.fromRGB(255, 120, 30)
+		fire.SecondaryColor = Color3.fromRGB(255, 210, 90)
+		fire.Parent = flame
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(255, 140, 50)
+		light.Range = 14
+		light.Brightness = 2
+		light.Parent = flame
+		task.delay(6, function()
+			fire.Enabled = false
+			TweenService:Create(light, TweenInfo.new(1.5), { Brightness = 0 }):Play()
+			TweenService:Create(scorch, TweenInfo.new(4), { Transparency = 1 }):Play()
+		end)
+		Debris:AddItem(flame, 9)
+		Debris:AddItem(scorch, 11)
+	end
 end
 
 local function slash(pos: Vector3, dir: Vector3)
@@ -169,7 +200,23 @@ local function slash(pos: Vector3, dir: Vector3)
 	sound(SOUNDS.Slash, pos, 0.5)
 end
 
+-- Make every tagged flame light flicker.
+local function startFlicker()
+	local t0 = os.clock()
+	RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		for i, light in CollectionService:GetTagged("Flicker") do
+			if light:IsA("PointLight") then
+				local base = light:GetAttribute("BaseBrightness") or 2
+				local n = math.noise(t * 3.5, i * 1.7) * 0.6 + math.sin(t * 11 + i) * 0.12
+				light.Brightness = base * (0.85 + n)
+			end
+		end
+	end)
+end
+
 function Effects.Init()
+	startFlicker()
 	local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Effect") :: RemoteEvent
 	remote.OnClientEvent:Connect(function(kind: string, ...)
 		if kind == "Shot" then

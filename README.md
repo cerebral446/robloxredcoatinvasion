@@ -73,18 +73,37 @@ After you change files in `src/`, rebuild the place file with `python3 tools/bui
 - **Reinforcements:** hire up to 4 Minutemen who follow you and shoot redcoats, or
   repair the powder stores.
 
+## Atmosphere
+
+- **Lighting:** golden-hour light with atmosphere, bloom and colour grading.
+  The place file turns on `Future` lighting (Game Settings or the Lighting
+  properties), so fires and lanterns cast shadows. If you use Rojo, set
+  **Lighting → Technology** to *Future* yourself.
+- **Fires:** campfires, a forge, braziers, burning haystacks, wagons and roofs
+  with flickering light. Big explosions leave the ground burning for a while.
+- **The British redoubt:** a stone fort with Union flags along the north edge.
+- **Townsfolk:** villagers wander and chat, then panic and take shelter during
+  waves. There's also a town crier with a bell, a blacksmith at the forge, a
+  drummer boy, children, a farmer and chickens. They only exist on each
+  player's screen, so they cost no network traffic and can't be hurt.
+- **Uniforms:** players wear a Continental uniform (navy coat, buff breeches,
+  white crossbelts and a gold-trimmed tricorne) and hold their weapon in
+  their hands.
+
 ## Project layout
 
 ```
 src/shared/Config.luau            All tuning: weapons, units, upgrades, wave composition
 src/server/GameServer.server.luau Round loop: intermission → wave → win/lose
 src/server/MapBuilder.luau        Procedural battlefield, village and powder stores
+src/server/SetDressing.luau       Lighting, fires, lanterns, flags, redoubt, palisades, props
 src/server/Units.luau             Redcoat and militia models, formations and AI
 src/server/PlayerManager.luau     Player weapons, reloading, melee, shop and upgrades
 src/server/FX.luau                Sends visual-effect events to clients
 src/client/Client.client.luau     Top-down camera, mouse aiming, input
 src/client/Interface.luau         HUD, announcements, crosshair and shop UI
-src/client/Effects.luau           Musket smoke, tracers, grenades and cannon fire
+src/client/Effects.luau           Musket smoke, tracers, grenades, cannon fire, light flicker
+src/client/Townsfolk.luau         Cosmetic villagers and chickens (client-side only)
 tools/build_place.py              Builds RedcoatInvasion.rbxlx from src/
 ```
 

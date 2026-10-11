@@ -10,6 +10,7 @@ local ContextActionService = game:GetService("ContextActionService")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local Effects = require(script.Parent:WaitForChild("Effects"))
 local Interface = require(script.Parent:WaitForChild("Interface"))
+local Townsfolk = require(script.Parent:WaitForChild("Townsfolk"))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -28,6 +29,13 @@ end
 
 Effects.Init()
 Interface.Init()
+-- Villagers are cosmetic; never let them break the rest of the client.
+task.spawn(function()
+	local ok, err = pcall(Townsfolk.Init)
+	if not ok then
+		warn("Townsfolk failed to start:", err)
+	end
+end)
 
 ---------------------------------------------------------------------------
 -- Camera
@@ -106,6 +114,59 @@ RunService.RenderStepped:Connect(function()
 		end
 	end
 	Interface.Update()
+end)
+
+---------------------------------------------------------------------------
+-- Hold the gun: the server raises the arms (Motor6D.C0); here we cancel the
+-- walk/idle animation on the arm joints each frame so the hands stay on the
+-- weapon. Runs for every player's character so everyone sees it.
+---------------------------------------------------------------------------
+
+local ARM_JOINTS = { "RightShoulder", "LeftShoulder", "RightElbow", "LeftElbow", "RightWrist", "LeftWrist", "Right Shoulder", "Left Shoulder" }
+local jointCache: { [Model]: { Motor6D } } = {}
+
+local function armJoints(char: Model): { Motor6D }
+	local cached = jointCache[char]
+	if cached then
+		local valid = true
+		for _, j in cached do
+			if not j.Parent or not j:IsDescendantOf(char) then
+				valid = false
+				break
+			end
+		end
+		if valid and #cached > 0 then
+			return cached
+		end
+	end
+	local list = {}
+	for _, name in ARM_JOINTS do
+		local j = char:FindFirstChild(name, true)
+		if j and j:IsA("Motor6D") then
+			table.insert(list, j)
+		end
+	end
+	jointCache[char] = list
+	return list
+end
+
+RunService.Stepped:Connect(function()
+	for _, p in Players:GetPlayers() do
+		local char = p.Character
+		if char and char:FindFirstChild("PropWeapon") then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				for _, j in armJoints(char) do
+					j.Transform = CFrame.identity
+				end
+			end
+		end
+	end
+	for char in jointCache do
+		if not char.Parent then
+			jointCache[char] = nil
+		end
+	end
 end)
 
 ---------------------------------------------------------------------------

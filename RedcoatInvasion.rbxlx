@@ -1,4 +1,4 @@
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Workspace" referent="RBX00000001"><Properties><string name="Name">Workspace</string></Properties></Item><Item class="ReplicatedStorage" referent="RBX00000004"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX00000003"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX00000002"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Shared tuning data for Redcoat Invasion.
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Workspace" referent="RBX00000001"><Properties><string name="Name">Workspace</string></Properties></Item><Item class="Lighting" referent="RBX00000002"><Properties><string name="Name">Lighting</string><token name="Technology">4</token></Properties></Item><Item class="ReplicatedStorage" referent="RBX00000005"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX00000004"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX00000003"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Shared tuning data for Redcoat Invasion.
 -- Everything gameplay-related that you may want to tweak lives here.
 
 local Config = {}
@@ -263,7 +263,7 @@ Config.Units = {
 		Spread = 4,
 		AimTime = 0.5,
 		Bounty = 0,
-		CoatColor = Color3.fromRGB(110, 80, 50),
+		CoatColor = Color3.fromRGB(32, 45, 100), -- Continental blue
 		Hat = "Tricorne",
 	},
 } :: { [string]: UnitDef }
@@ -330,7 +330,7 @@ function Config.GetWave(wave: number): WaveDef
 end
 
 return Config
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ServerScriptService" referent="RBX0000000A"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="ModuleScript" referent="RBX00000005"><Properties><string name="Name">FX</string><ProtectedString name="Source"><![CDATA[-- Server -> client visual effects. The server decides *what* happened; every
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ServerScriptService" referent="RBX0000000C"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="ModuleScript" referent="RBX00000006"><Properties><string name="Name">FX</string><ProtectedString name="Source"><![CDATA[-- Server -> client visual effects. The server decides *what* happened; every
 -- client draws smoke, tracers, grenades and cannonballs locally.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -384,7 +384,7 @@ function FX.Announce(text: string, color: Color3?, target: Player?)
 end
 
 return FX
-]]></ProtectedString></Properties></Item><Item class="Script" referent="RBX00000006"><Properties><string name="Name">GameServer</string><ProtectedString name="Source"><![CDATA[-- Redcoat Invasion: main server script.
+]]></ProtectedString></Properties></Item><Item class="Script" referent="RBX00000007"><Properties><string name="Name">GameServer</string><ProtectedString name="Source"><![CDATA[-- Redcoat Invasion: main server script.
 -- Builds the map, then runs the loop: intermission (shop) -> wave -> ...
 -- until the powder stores fall, every player is down, or the final wave is won.
 
@@ -692,13 +692,13 @@ while true do
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000007"><Properties><string name="Name">MapBuilder</string><ProtectedString name="Source"><![CDATA[-- Builds the battlefield procedurally: fields, the road, stone walls, trees,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000008"><Properties><string name="Name">MapBuilder</string><ProtectedString name="Source"><![CDATA[-- Builds the battlefield procedurally: fields, the road, stone walls, trees,
 -- the village and the powder stores the redcoats are marching to seize.
 
-local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local SetDressing = require(script.Parent:WaitForChild("SetDressing"))
 
 local MapBuilder = {}
 
@@ -928,13 +928,7 @@ local function buildStores(): Model
 		CFrame = CFrame.new(pos + Vector3.new(10, 13, -6)),
 		Color = Color3.fromRGB(230, 230, 230),
 	}, model, false)
-	part({
-		Name = "Flag",
-		Size = Vector3.new(7, 4, 0.2),
-		CFrame = CFrame.new(pos + Vector3.new(13.75, 23.5, -6)),
-		Color = Color3.fromRGB(30, 60, 140),
-		Material = Enum.Material.Fabric,
-	}, model, false)
+	SetDressing.StripesFlag(CFrame.new(pos + Vector3.new(13.75, 23.5, -6)), 7, 4.2, model)
 
 	model.PrimaryPart = building
 	model:SetAttribute("IsStores", true)
@@ -1084,14 +1078,9 @@ function MapBuilder.Build(): (Folder, Model)
 	}, decorFolder, false)
 
 	local stores = buildStores()
+	SetDressing.Build(mapFolder, coverFolder, decorFolder, m.NorthEdge, m.HalfWidth)
 
 	mapFolder.Parent = workspace
-
-	-- Warm late-afternoon light.
-	Lighting.ClockTime = 16.5
-	Lighting.Brightness = 2.2
-	Lighting.OutdoorAmbient = Color3.fromRGB(140, 130, 115)
-	Lighting.GlobalShadows = true
 
 	math.randomseed(os.clock() * 1000)
 
@@ -1099,7 +1088,7 @@ function MapBuilder.Build(): (Folder, Model)
 end
 
 return MapBuilder
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000008"><Properties><string name="Name">PlayerManager</string><ProtectedString name="Source"><![CDATA[-- Per-player state: money, weapons, upgrades, firing, reloading and the shop.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000009"><Properties><string name="Name">PlayerManager</string><ProtectedString name="Source"><![CDATA[-- Per-player state: money, weapons, upgrades, firing, reloading and the shop.
 -- State the client needs to draw the HUD is mirrored onto player attributes.
 
 local Players = game:GetService("Players")
@@ -1470,16 +1459,29 @@ local function pistol(): { PieceDef }
 	}
 end
 
--- Where each weapon is held, relative to the HumanoidRootPart.
-local WEAPON_MODELS: { [string]: { { Grip: CFrame, Pieces: { PieceDef } } } } = {
-	Musket = { { Grip = CFrame.new(0.55, 0.9, -1.1), Pieces = longGun(3.8, STEEL, true, false) } },
-	LongRifle = { { Grip = CFrame.new(0.55, 0.9, -1.1), Pieces = longGun(4.8, BRASS, false, false) } },
-	Blunderbuss = { { Grip = CFrame.new(0.55, 0.9, -1.1), Pieces = longGun(2.6, BRASS, false, true) } },
+-- Each weapon: which hand holds which piece set, and how far each arm swings
+-- inward (degrees) when raised to hold it.
+type Holder = { Hand: string, Pieces: { PieceDef } }
+type WeaponModel = { Holders: { Holder }, RightYaw: number, LeftYaw: number }
+
+local WEAPON_MODELS: { [string]: WeaponModel } = {
+	Musket = { Holders = { { Hand = "Right", Pieces = longGun(3.8, STEEL, true, false) } }, RightYaw = 0, LeftYaw = -30 },
+	LongRifle = { Holders = { { Hand = "Right", Pieces = longGun(4.8, BRASS, false, false) } }, RightYaw = 0, LeftYaw = -30 },
+	Blunderbuss = { Holders = { { Hand = "Right", Pieces = longGun(2.6, BRASS, false, true) } }, RightYaw = 0, LeftYaw = -30 },
 	Pistols = {
-		{ Grip = CFrame.new(1.1, 0.75, -1.3), Pieces = pistol() },
-		{ Grip = CFrame.new(-1.1, 0.75, -1.3), Pieces = pistol() },
+		Holders = {
+			{ Hand = "Right", Pieces = pistol() },
+			{ Hand = "Left", Pieces = pistol() },
+		},
+		RightYaw = 0,
+		LeftYaw = 0,
 	},
 }
+
+local NAVY = Color3.fromRGB(32, 45, 100)
+local BUFF = Color3.fromRGB(226, 214, 180)
+local GOLD = Color3.fromRGB(214, 172, 60)
+local BELT = Color3.fromRGB(240, 236, 225)
 
 local function propPart(name: string, size: Vector3, color: Color3, material: Enum.Material): Part
 	local p = Instance.new("Part")
@@ -1497,10 +1499,21 @@ local function propPart(name: string, size: Vector3, color: Color3, material: En
 	return p
 end
 
--- Raise both arms forward so the avatar looks like it is holding the gun.
--- The rotation is applied in the torso's space, so it works for R6 and R15.
-local function poseArms(char: Model)
-	for _, spec in { { "RightShoulder", "Right Shoulder", 10 }, { "LeftShoulder", "Left Shoulder", -35 } } do
+local function attach(part: BasePart, to: BasePart, c0: CFrame, parent: Instance)
+	part.CFrame = to.CFrame * c0
+	local weld = Instance.new("Weld")
+	weld.Part0 = to
+	weld.Part1 = part
+	weld.C0 = c0
+	weld.Parent = part
+	part.Parent = parent
+end
+
+-- Raise both arms straight forward to hold the weapon. The rotation is applied
+-- in the torso's space, so it works for R6 and R15. Clients then freeze the
+-- arm animation (see Client.client.luau) so walking doesn't swing them away.
+local function poseArms(char: Model, rightYaw: number, leftYaw: number)
+	for _, spec in { { "RightShoulder", "Right Shoulder", rightYaw }, { "LeftShoulder", "Left Shoulder", leftYaw } } do
 		local joint = char:FindFirstChild(spec[1], true) or char:FindFirstChild(spec[2], true)
 		if joint and joint:IsA("Motor6D") then
 			local original = joint:GetAttribute("OriginalC0")
@@ -1509,58 +1522,146 @@ local function poseArms(char: Model)
 				joint:SetAttribute("OriginalC0", original)
 			end
 			local c0 = original :: CFrame
-			local raise = CFrame.Angles(0, math.rad(spec[3] :: number), 0) * CFrame.Angles(math.rad(80), 0, 0)
+			local raise = CFrame.Angles(0, math.rad(spec[3] :: number), 0) * CFrame.Angles(math.rad(90), 0, 0)
 			joint.C0 = CFrame.new(c0.Position) * raise * c0.Rotation
 		end
 	end
 end
 
--- Give the avatar a tricorne and the equipped firearm so they look the part.
+-- Hand part and the grip point inside it (R15 hands are small; R6 arms are
+-- whole limbs, so the grip sits near the bottom).
+local function handFor(char: Model, side: string): (BasePart?, CFrame)
+	local r15 = char:FindFirstChild(side .. "Hand")
+	if r15 and r15:IsA("BasePart") then
+		return r15, CFrame.new(0, -r15.Size.Y * 0.3, 0)
+	end
+	local r6 = char:FindFirstChild(side .. " Arm")
+	if r6 and r6:IsA("BasePart") then
+		return r6, CFrame.new(0, -r6.Size.Y / 2 + 0.15, 0)
+	end
+	return nil, CFrame.identity
+end
+
+-- Swap the avatar's clothes for a Continental Army uniform: navy coat, buff
+-- breeches and white crossbelts with brass buttons.
+local function dressUniform(char: Model)
+	for _, c in char:GetChildren() do
+		if c:IsA("Shirt") or c:IsA("Pants") or c:IsA("ShirtGraphic") then
+			c:Destroy()
+		elseif c:IsA("Accessory") then
+			local handle = c:FindFirstChild("Handle")
+			local layered = handle and handle:FindFirstChildOfClass("WrapLayer")
+			if layered or c.AccessoryType == Enum.AccessoryType.Hat then
+				c:Destroy()
+			end
+		end
+	end
+	local colors = char:FindFirstChildOfClass("BodyColors")
+	if not colors then
+		colors = Instance.new("BodyColors")
+		colors.Parent = char
+	end
+	local bc = colors :: BodyColors
+	bc.TorsoColor3 = NAVY
+	bc.LeftArmColor3 = NAVY
+	bc.RightArmColor3 = NAVY
+	bc.LeftLegColor3 = BUFF
+	bc.RightLegColor3 = BUFF
+
+	local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+	if not (torso and torso:IsA("BasePart")) then
+		return
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "PropUniform"
+	local size = torso.Size
+	local front = -size.Z / 2 - 0.04
+	local beltLength = math.sqrt(size.X ^ 2 + size.Y ^ 2) * 0.95
+	local angle = math.atan2(size.Y, size.X)
+	for _, sign in { 1, -1 } do
+		attach(
+			propPart("Crossbelt", Vector3.new(beltLength, 0.28, 0.06), BELT, Enum.Material.Fabric),
+			torso,
+			CFrame.new(0, 0, front) * CFrame.Angles(0, 0, sign * angle),
+			folder
+		)
+	end
+	for i = -1, 1 do
+		attach(
+			propPart("Button", Vector3.new(0.16, 0.16, 0.06), GOLD, Enum.Material.Metal),
+			torso,
+			CFrame.new(size.X * 0.3, i * size.Y * 0.28, front - 0.02),
+			folder
+		)
+	end
+	-- White cuffs like the redcoats' facings.
+	for _, side in { "Right", "Left" } do
+		local arm = char:FindFirstChild(side .. "LowerArm") or char:FindFirstChild(side .. " Arm")
+		if arm and arm:IsA("BasePart") then
+			attach(
+				propPart("Cuff", Vector3.new(arm.Size.X + 0.08, 0.3, arm.Size.Z + 0.08), BELT, Enum.Material.Fabric),
+				arm,
+				CFrame.new(0, -arm.Size.Y / 2 + 0.2, 0),
+				folder
+			)
+		end
+	end
+	folder.Parent = char
+end
+
+-- Give the avatar a uniform, a gold-trimmed tricorne and the equipped
+-- firearm held in the hands.
 function PlayerManager.DressCharacter(player: Player)
 	local char = player.Character
 	local d = data[player]
 	if not char or not d then
 		return
 	end
-	for _, name in { "PropWeapon", "PropHat" } do
+	for _, name in { "PropWeapon", "PropHat", "PropUniform" } do
 		local old = char:FindFirstChild(name)
 		if old then
 			old:Destroy()
 		end
 	end
-	local root = char:FindFirstChild("HumanoidRootPart")
-	local head = char:FindFirstChild("Head")
+	dressUniform(char)
 
-	if root and root:IsA("BasePart") then
-		local weapon = Instance.new("Model")
-		weapon.Name = "PropWeapon"
-		for _, holder in WEAPON_MODELS[d.Equipped] or WEAPON_MODELS.Musket do
+	local spec = WEAPON_MODELS[d.Equipped] or WEAPON_MODELS.Musket
+	local weapon = Instance.new("Model")
+	weapon.Name = "PropWeapon"
+	for _, holder in spec.Holders do
+		local hand, grip = handFor(char, holder.Hand)
+		if hand then
+			-- Point the weapon straight ahead even though the arm is angled in:
+			-- torso-up is the hand's -Z axis once the arm is raised.
+			local yaw = if holder.Hand == "Right" then spec.RightYaw else spec.LeftYaw
+			local inHand = grip * CFrame.Angles(0, 0, math.rad(yaw)) * CFrame.Angles(math.rad(-90), 0, 0)
 			for i, piece in holder.Pieces do
 				local size, offset, color, material = piece[1] :: Vector3, piece[2] :: CFrame, piece[3] :: Color3, piece[4] :: Enum.Material
-				local p = propPart("Piece" .. i, size, color, material)
-				local c0 = holder.Grip * offset
-				p.CFrame = root.CFrame * c0
-				-- Welded to the root (never swapped out by avatar loading) so it
-				-- always points where the player is aiming.
-				local weld = Instance.new("Weld")
-				weld.Part0 = root
-				weld.Part1 = p
-				weld.C0 = c0
-				weld.Parent = p
-				p.Parent = weapon
+				attach(propPart("Piece" .. i, size, color, material), hand, inHand * offset, weapon)
 			end
 		end
-		weapon.Parent = char
-		poseArms(char)
 	end
+	weapon.Parent = char
+	poseArms(char, spec.RightYaw, spec.LeftYaw)
 
+	local head = char:FindFirstChild("Head")
 	if head and head:IsA("BasePart") then
-		local hat = propPart("PropHat", Vector3.new(1.9, 0.45, 1.9), Color3.fromRGB(25, 25, 25), Enum.Material.Fabric)
-		hat.CFrame = head.CFrame * CFrame.new(0, head.Size.Y / 2 + 0.15, 0)
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = head
-		weld.Part1 = hat
-		weld.Parent = hat
+		local hat = Instance.new("Model")
+		hat.Name = "PropHat"
+		local top = CFrame.new(0, head.Size.Y / 2, 0)
+		attach(propPart("Brim", Vector3.new(2.1, 0.3, 2.1), Color3.fromRGB(25, 25, 30), Enum.Material.Fabric), head, top * CFrame.new(0, 0.1, 0), hat)
+		attach(propPart("Trim", Vector3.new(2.2, 0.12, 2.2), GOLD, Enum.Material.Metal), head, top * CFrame.new(0, 0.02, 0), hat)
+		attach(propPart("Crown", Vector3.new(1.3, 0.55, 1.3), Color3.fromRGB(25, 25, 30), Enum.Material.Fabric), head, top * CFrame.new(0, 0.45, 0), hat)
+		-- Cocked corners of the tricorne.
+		for i = 0, 2 do
+			local a = math.rad(i * 120 + 180)
+			attach(
+				propPart("Corner", Vector3.new(0.9, 0.5, 0.25), Color3.fromRGB(25, 25, 30), Enum.Material.Fabric),
+				head,
+				top * CFrame.Angles(0, a, 0) * CFrame.new(0, 0.35, -0.95) * CFrame.Angles(math.rad(-20), 0, 0),
+				hat
+			)
+		end
 		hat.Parent = char
 	end
 end
@@ -1729,7 +1830,565 @@ function PlayerManager.Init(state: Instance, shopOpen: () -> boolean)
 end
 
 return PlayerManager
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000009"><Properties><string name="Name">Units</string><ProtectedString name="Source"><![CDATA[-- Redcoats and hired militia: model construction, AI, and damage handling.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000A"><Properties><string name="Name">SetDressing</string><ProtectedString name="Source"><![CDATA[-- Atmosphere and set dressing: golden-hour lighting, fires, lanterns, flags,
+-- the British redoubt, palisades, crates, barrels, haystacks and the forge.
+
+local CollectionService = game:GetService("CollectionService")
+local Lighting = game:GetService("Lighting")
+
+local SetDressing = {}
+
+local DARK_WOOD = Color3.fromRGB(80, 55, 35)
+local STONE = Color3.fromRGB(150, 140, 125)
+local IRON = Color3.fromRGB(45, 45, 48)
+local FIRE_ORANGE = Color3.fromRGB(255, 140, 50)
+
+local function part(props: { [string]: any }, parent: Instance, blocksShots: boolean?): Part
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Material = Enum.Material.SmoothPlastic
+	for k, v in props do
+		(p :: any)[k] = v
+	end
+	p.CanQuery = blocksShots == true
+	p.Parent = parent
+	return p
+end
+
+-- A light that the client makes flicker like a flame.
+local function flameLight(parent: BasePart, brightness: number, range: number)
+	local light = Instance.new("PointLight")
+	light.Color = FIRE_ORANGE
+	light.Brightness = brightness
+	light.Range = range
+	light.Shadows = true
+	light:SetAttribute("BaseBrightness", brightness)
+	light.Parent = parent
+	CollectionService:AddTag(light, "Flicker")
+	return light
+end
+
+local function flames(parent: BasePart, size: number, smoky: boolean)
+	local fire = Instance.new("Fire")
+	fire.Size = size
+	fire.Heat = size * 1.6
+	fire.Color = Color3.fromRGB(255, 120, 30)
+	fire.SecondaryColor = Color3.fromRGB(255, 210, 90)
+	fire.Parent = parent
+	if smoky then
+		local smoke = Instance.new("Smoke")
+		smoke.Color = Color3.fromRGB(70, 65, 60)
+		smoke.Opacity = 0.12
+		smoke.RiseVelocity = 5
+		smoke.Size = size * 0.8
+		smoke.Parent = parent
+	end
+end
+
+local function fireSource(pos: Vector3, size: number, folder: Instance, smoky: boolean, lightRange: number?)
+	local src = part({
+		Name = "FireSource",
+		Size = Vector3.new(0.5, 0.5, 0.5),
+		Position = pos,
+		Transparency = 1,
+		CanCollide = false,
+	}, folder)
+	flames(src, size, smoky)
+	flameLight(src, 2.5, lightRange or size * 4)
+	return src
+end
+
+---------------------------------------------------------------------------
+-- Props
+---------------------------------------------------------------------------
+
+local function campfire(pos: Vector3, folder: Instance)
+	for i = 0, 7 do
+		local a = i / 8 * math.pi * 2
+		part({
+			Name = "FireStone",
+			Size = Vector3.new(0.9, 0.6, 0.9),
+			CFrame = CFrame.new(pos + Vector3.new(math.cos(a) * 1.8, 0.3, math.sin(a) * 1.8)) * CFrame.Angles(0, a, 0),
+			Color = STONE,
+			Material = Enum.Material.Slate,
+			CanCollide = false,
+		}, folder)
+	end
+	for i = 0, 2 do
+		part({
+			Name = "Log",
+			Size = Vector3.new(0.5, 0.5, 2.8),
+			CFrame = CFrame.new(pos + Vector3.new(0, 0.5, 0)) * CFrame.Angles(math.rad(-15), i * math.rad(60), 0),
+			Color = DARK_WOOD,
+			Material = Enum.Material.Wood,
+			CanCollide = false,
+		}, folder)
+	end
+	part({
+		Name = "Embers",
+		Size = Vector3.new(1.6, 0.15, 1.6),
+		Position = pos + Vector3.new(0, 0.1, 0),
+		Color = Color3.fromRGB(255, 90, 20),
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+	}, folder)
+	fireSource(pos + Vector3.new(0, 1, 0), 3, folder, true, 20)
+end
+
+local function lantern(pos: Vector3, folder: Instance)
+	part({
+		Name = "LanternPost",
+		Size = Vector3.new(0.5, 8, 0.5),
+		Position = pos + Vector3.new(0, 4, 0),
+		Color = DARK_WOOD,
+		Material = Enum.Material.Wood,
+	}, folder)
+	part({
+		Name = "LanternArm",
+		Size = Vector3.new(0.3, 0.3, 1.6),
+		Position = pos + Vector3.new(0, 7.8, -0.7),
+		Color = IRON,
+		Material = Enum.Material.Metal,
+	}, folder)
+	part({
+		Name = "LanternCap",
+		Size = Vector3.new(1.1, 0.3, 1.1),
+		Position = pos + Vector3.new(0, 7.6, -1.3),
+		Color = IRON,
+		Material = Enum.Material.Metal,
+	}, folder)
+	local glass = part({
+		Name = "Lantern",
+		Size = Vector3.new(0.8, 1.1, 0.8),
+		Position = pos + Vector3.new(0, 6.9, -1.3),
+		Color = Color3.fromRGB(255, 200, 110),
+		Material = Enum.Material.Neon,
+		Transparency = 0.15,
+	}, folder)
+	flameLight(glass, 1.6, 16)
+end
+
+local function crate(pos: Vector3, yaw: number, folder: Instance)
+	local c = part({
+		Name = "Crate",
+		Size = Vector3.new(3.4, 3.4, 3.4),
+		CFrame = CFrame.new(pos + Vector3.new(0, 1.7, 0)) * CFrame.Angles(0, math.rad(yaw), 0),
+		Color = Color3.fromRGB(150, 110, 70),
+		Material = Enum.Material.WoodPlanks,
+	}, folder, true)
+	for _, z in { -1, 1 } do
+		part({
+			Name = "CrateBand",
+			Size = Vector3.new(3.5, 0.35, 0.2),
+			CFrame = c.CFrame * CFrame.new(0, 0, z * 1.7),
+			Color = DARK_WOOD,
+			Material = Enum.Material.Wood,
+		}, folder)
+	end
+end
+
+local function barrel(pos: Vector3, folder: Instance)
+	part({
+		Name = "Barrel",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(3.4, 2.4, 2.4),
+		CFrame = CFrame.new(pos + Vector3.new(0, 1.7, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(125, 85, 50),
+		Material = Enum.Material.Wood,
+	}, folder, true)
+	for _, y in { 0.5, 2.9 } do
+		part({
+			Name = "Hoop",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.2, 2.5, 2.5),
+			CFrame = CFrame.new(pos + Vector3.new(0, y, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+			Color = IRON,
+			Material = Enum.Material.Metal,
+			CanCollide = false,
+		}, folder)
+	end
+end
+
+local function haystack(pos: Vector3, burning: boolean, cover: Instance, decor: Instance)
+	part({
+		Name = "Haystack",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(7, 7, 7),
+		Position = pos + Vector3.new(0, 1.5, 0),
+		Color = if burning then Color3.fromRGB(110, 85, 40) else Color3.fromRGB(205, 175, 90),
+		Material = Enum.Material.Grass,
+	}, cover, true)
+	if burning then
+		fireSource(pos + Vector3.new(0, 4.5, 0), 7, decor, true, 26)
+	end
+end
+
+local function wagonWreck(pos: Vector3, yaw: number, cover: Instance, decor: Instance)
+	local base = CFrame.new(pos) * CFrame.Angles(0, math.rad(yaw), 0)
+	part({
+		Name = "WagonBed",
+		Size = Vector3.new(5, 1, 9),
+		CFrame = base * CFrame.new(0, 1.2, 0) * CFrame.Angles(0, 0, math.rad(12)),
+		Color = Color3.fromRGB(60, 40, 25),
+		Material = Enum.Material.WoodPlanks,
+	}, cover, true)
+	part({
+		Name = "WagonSide",
+		Size = Vector3.new(0.4, 2.2, 9),
+		CFrame = base * CFrame.new(-2.4, 2.4, 0) * CFrame.Angles(0, 0, math.rad(20)),
+		Color = Color3.fromRGB(50, 35, 22),
+		Material = Enum.Material.WoodPlanks,
+	}, cover, true)
+	part({
+		Name = "Wheel",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.4, 3.6, 3.6),
+		CFrame = base * CFrame.new(3, 0.25, 2.5) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = DARK_WOOD,
+		Material = Enum.Material.Wood,
+	}, decor)
+	part({
+		Name = "Wheel",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.4, 3.6, 3.6),
+		CFrame = base * CFrame.new(2.6, 1.8, -2.5) * CFrame.Angles(0, 0, math.rad(15)),
+		Color = DARK_WOOD,
+		Material = Enum.Material.Wood,
+	}, decor)
+	fireSource((base * CFrame.new(0, 2.5, 0)).Position, 6, decor, true, 24)
+end
+
+-- A row of sharpened stakes like the stockade in the poster.
+local function palisade(from: Vector3, to: Vector3, cover: Instance)
+	local delta = to - from
+	local count = math.floor(delta.Magnitude / 1.1)
+	local dir = delta.Unit
+	for i = 0, count do
+		local p = from + dir * (i * 1.1)
+		local height = 4.6 + math.random() * 0.8
+		local stake = part({
+			Name = "Stake",
+			Size = Vector3.new(1, height, 1),
+			CFrame = CFrame.lookAt(p + Vector3.new(0, height / 2, 0), p + Vector3.new(0, height / 2, 0) + dir)
+				* CFrame.Angles(0, 0, math.rad(math.random(-4, 4))),
+			Color = Color3.fromRGB(125 + math.random(-10, 10), 90, 55),
+			Material = Enum.Material.Wood,
+		}, cover, true)
+		-- The point: a small block turned 45 degrees.
+		part({
+			Name = "StakeTip",
+			Size = Vector3.new(0.72, 0.72, 0.72),
+			CFrame = stake.CFrame * CFrame.new(0, height / 2, 0) * CFrame.Angles(math.rad(45), 0, math.rad(45)),
+			Color = stake.Color,
+			Material = Enum.Material.Wood,
+			CanCollide = false,
+		}, cover)
+	end
+	-- Horizontal binding rail.
+	local mid = (from + to) / 2
+	part({
+		Name = "PalisadeRail",
+		Size = Vector3.new(0.4, 0.4, delta.Magnitude),
+		CFrame = CFrame.lookAt(mid + Vector3.new(0, 2.5, 0), to + Vector3.new(0, 2.5, 0)) * CFrame.new(0, 0, 0),
+		Color = DARK_WOOD,
+		Material = Enum.Material.Wood,
+		CanCollide = false,
+	}, cover)
+end
+
+---------------------------------------------------------------------------
+-- Flags
+---------------------------------------------------------------------------
+
+local function flagPart(name: string, size: Vector3, cf: CFrame, color: Color3, parent: Instance)
+	part({
+		Name = name,
+		Size = size,
+		CFrame = cf,
+		Color = color,
+		Material = Enum.Material.Fabric,
+		CanCollide = false,
+		CastShadow = false,
+	}, parent)
+end
+
+-- British Union flag. `cf` is the centre of the flag, facing -Z.
+function SetDressing.UnionFlag(cf: CFrame, w: number, h: number, parent: Instance)
+	local blue = Color3.fromRGB(1, 33, 105)
+	local white = Color3.fromRGB(245, 245, 245)
+	local red = Color3.fromRGB(200, 16, 46)
+	flagPart("Field", Vector3.new(w, h, 0.1), cf, blue, parent)
+	local diag = math.sqrt(w * w + h * h) - h * 0.2
+	local angle = math.atan2(h, w)
+	for _, sign in { 1, -1 } do
+		flagPart("SaltireWhite", Vector3.new(diag, h * 0.2, 0.1), cf * CFrame.new(0, 0, -0.02) * CFrame.Angles(0, 0, sign * angle), white, parent)
+		flagPart("SaltireRed", Vector3.new(diag, h * 0.07, 0.1), cf * CFrame.new(0, 0, -0.04) * CFrame.Angles(0, 0, sign * angle), red, parent)
+	end
+	flagPart("CrossWhiteH", Vector3.new(w, h * 0.33, 0.1), cf * CFrame.new(0, 0, -0.06), white, parent)
+	flagPart("CrossWhiteV", Vector3.new(h * 0.33, h, 0.1), cf * CFrame.new(0, 0, -0.06), white, parent)
+	flagPart("CrossRedH", Vector3.new(w, h * 0.2, 0.1), cf * CFrame.new(0, 0, -0.08), red, parent)
+	flagPart("CrossRedV", Vector3.new(h * 0.2, h, 0.1), cf * CFrame.new(0, 0, -0.08), red, parent)
+end
+
+-- Thirteen stripes with a ring of thirteen stars.
+function SetDressing.StripesFlag(cf: CFrame, w: number, h: number, parent: Instance)
+	local red = Color3.fromRGB(178, 34, 52)
+	local white = Color3.fromRGB(245, 245, 245)
+	local stripe = h / 13
+	for i = 0, 12 do
+		local y = h / 2 - stripe * (i + 0.5)
+		flagPart("Stripe", Vector3.new(w, stripe, 0.1), cf * CFrame.new(0, y, 0), if i % 2 == 0 then red else white, parent)
+	end
+	local cw, ch = w * 0.4, stripe * 7
+	local canton = cf * CFrame.new(-w / 2 + cw / 2, h / 2 - ch / 2, -0.03)
+	flagPart("Canton", Vector3.new(cw, ch, 0.1), canton, Color3.fromRGB(60, 59, 110), parent)
+	local r = math.min(cw, ch) * 0.32
+	for i = 0, 12 do
+		local a = i / 13 * math.pi * 2
+		flagPart("Star", Vector3.new(0.22, 0.22, 0.1), canton * CFrame.new(math.cos(a) * r, math.sin(a) * r, -0.03), white, parent)
+	end
+end
+
+local function flagpole(base: Vector3, height: number, folder: Instance): CFrame
+	part({
+		Name = "Flagpole",
+		Size = Vector3.new(0.5, height, 0.5),
+		Position = base + Vector3.new(0, height / 2, 0),
+		Color = Color3.fromRGB(90, 70, 50),
+		Material = Enum.Material.Wood,
+	}, folder)
+	part({
+		Name = "Finial",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.one * 0.9,
+		Position = base + Vector3.new(0, height + 0.3, 0),
+		Color = Color3.fromRGB(214, 172, 60),
+		Material = Enum.Material.Metal,
+	}, folder)
+	return CFrame.new(base + Vector3.new(0, height, 0))
+end
+
+---------------------------------------------------------------------------
+-- Large set pieces
+---------------------------------------------------------------------------
+
+-- The British redoubt along the north edge, where the Regulars march from.
+local function redoubt(northZ: number, halfWidth: number, cover: Instance, decor: Instance)
+	local z = northZ + 4
+	local wallColor = Color3.fromRGB(140, 130, 115)
+	part({
+		Name = "RedoubtWall",
+		Size = Vector3.new(halfWidth * 2, 7, 3),
+		Position = Vector3.new(0, 3.5, z),
+		Color = wallColor,
+		Material = Enum.Material.Cobblestone,
+	}, cover, true)
+	for x = -halfWidth + 2, halfWidth - 2, 4 do
+		part({
+			Name = "Merlon",
+			Size = Vector3.new(2, 1.6, 3),
+			Position = Vector3.new(x, 7.8, z),
+			Color = wallColor,
+			Material = Enum.Material.Cobblestone,
+		}, decor)
+	end
+	for _, x in { -88, 88 } do
+		part({
+			Name = "Bastion",
+			Size = Vector3.new(12, 11, 9),
+			Position = Vector3.new(x, 5.5, z - 1),
+			Color = wallColor,
+			Material = Enum.Material.Cobblestone,
+		}, cover, true)
+		for i = -1, 1 do
+			part({
+				Name = "Merlon",
+				Size = Vector3.new(2.4, 1.8, 2.4),
+				Position = Vector3.new(x + i * 4.5, 11.9, z + 3),
+				Color = wallColor,
+				Material = Enum.Material.Cobblestone,
+			}, decor)
+		end
+		-- Union flag flying over each bastion.
+		local top = flagpole(Vector3.new(x, 11, z - 2), 16, decor)
+		SetDressing.UnionFlag(top * CFrame.new(4.2, -2.2, 0) * CFrame.Angles(0, math.rad(180), 0), 8, 4.2, decor)
+		-- A brazier burning on the bastion.
+		local brazier = part({
+			Name = "Brazier",
+			Size = Vector3.new(1.6, 1.2, 1.6),
+			Position = Vector3.new(x - 4, 11.6, z - 2),
+			Color = IRON,
+			Material = Enum.Material.Metal,
+		}, decor)
+		fireSource(brazier.Position + Vector3.new(0, 1, 0), 2.5, decor, false, 18)
+	end
+end
+
+local function forge(pos: Vector3, cover: Instance, decor: Instance)
+	part({
+		Name = "Forge",
+		Size = Vector3.new(5, 3, 4),
+		Position = pos + Vector3.new(0, 1.5, 0),
+		Color = STONE,
+		Material = Enum.Material.Brick,
+	}, cover, true)
+	part({
+		Name = "ForgeChimney",
+		Size = Vector3.new(2.4, 9, 2.4),
+		Position = pos + Vector3.new(0, 7.5, 1.2),
+		Color = STONE,
+		Material = Enum.Material.Brick,
+	}, decor)
+	part({
+		Name = "Coals",
+		Size = Vector3.new(3, 0.3, 2),
+		Position = pos + Vector3.new(0, 3.1, -0.4),
+		Color = Color3.fromRGB(255, 90, 20),
+		Material = Enum.Material.Neon,
+	}, decor)
+	fireSource(pos + Vector3.new(0, 3.6, -0.4), 2.2, decor, true, 18)
+	-- Roof over the smithy.
+	for _, x in { -3.5, 3.5 } do
+		part({
+			Name = "SmithyPost",
+			Size = Vector3.new(0.5, 8, 0.5),
+			Position = pos + Vector3.new(x, 4, -6),
+			Color = DARK_WOOD,
+			Material = Enum.Material.Wood,
+		}, decor)
+	end
+	part({
+		Name = "SmithyRoof",
+		Size = Vector3.new(9, 0.4, 9),
+		CFrame = CFrame.new(pos + Vector3.new(0, 8.2, -2)) * CFrame.Angles(math.rad(-8), 0, 0),
+		Color = Color3.fromRGB(80, 65, 55),
+		Material = Enum.Material.WoodPlanks,
+	}, decor)
+	-- The anvil: townsfolk look this part up to place the blacksmith.
+	part({
+		Name = "AnvilBase",
+		Size = Vector3.new(1, 1.6, 1),
+		Position = pos + Vector3.new(0, 0.8, -4.5),
+		Color = DARK_WOOD,
+		Material = Enum.Material.Wood,
+	}, decor)
+	part({
+		Name = "Anvil",
+		Size = Vector3.new(0.9, 0.6, 2),
+		Position = pos + Vector3.new(0, 1.9, -4.5),
+		Color = IRON,
+		Material = Enum.Material.Metal,
+	}, decor)
+end
+
+---------------------------------------------------------------------------
+-- Lighting
+---------------------------------------------------------------------------
+
+local function lighting()
+	Lighting.ClockTime = 17.3
+	Lighting.GeographicLatitude = 42
+	Lighting.Brightness = 3
+	Lighting.Ambient = Color3.fromRGB(75, 60, 50)
+	Lighting.OutdoorAmbient = Color3.fromRGB(160, 125, 95)
+	Lighting.EnvironmentDiffuseScale = 0.6
+	Lighting.EnvironmentSpecularScale = 0.6
+	Lighting.ExposureCompensation = 0.15
+	Lighting.GlobalShadows = true
+
+	for _, child in Lighting:GetChildren() do
+		if child:GetAttribute("RedcoatFX") then
+			child:Destroy()
+		end
+	end
+	local function add(className: string, props: { [string]: any })
+		local inst = Instance.new(className)
+		for k, v in props do
+			(inst :: any)[k] = v
+		end
+		inst:SetAttribute("RedcoatFX", true)
+		inst.Parent = Lighting
+	end
+	add("Atmosphere", {
+		Density = 0.28,
+		Offset = 0.15,
+		Color = Color3.fromRGB(255, 214, 160),
+		Decay = Color3.fromRGB(190, 120, 80),
+		Glare = 0.5,
+		Haze = 1.4,
+	})
+	add("ColorCorrectionEffect", {
+		Brightness = 0.02,
+		Contrast = 0.15,
+		Saturation = 0.28,
+		TintColor = Color3.fromRGB(255, 236, 212),
+	})
+	add("BloomEffect", { Intensity = 0.7, Size = 30, Threshold = 1.5 })
+	add("SunRaysEffect", { Intensity = 0.07, Spread = 0.7 })
+end
+
+---------------------------------------------------------------------------
+
+function SetDressing.Build(map: Folder, cover: Folder, decor: Folder, northZ: number, halfWidth: number)
+	local props = Instance.new("Folder")
+	props.Name = "Props"
+	props.Parent = decor
+
+	-- Village: campfires on the green, the smithy, lanterns along the street.
+	campfire(Vector3.new(-24, 0, 100), props)
+	campfire(Vector3.new(26, 0, 102), props)
+	campfire(Vector3.new(-75, 0, 140), props)
+	campfire(Vector3.new(80, 0, 140), props)
+	forge(Vector3.new(24, 0, 162), cover, props)
+	for _, z in { 70, 95, 120, 150 } do
+		lantern(Vector3.new(-11, 0, z), props)
+		lantern(Vector3.new(11, 0, z), props)
+	end
+	lantern(Vector3.new(-36, 0, 106), props)
+	lantern(Vector3.new(36, 0, 106), props)
+	lantern(Vector3.new(-50, 0, 138), props)
+	lantern(Vector3.new(52, 0, 140), props)
+
+	-- Stockade with firing gaps in front of the village.
+	palisade(Vector3.new(-72, 0, 88), Vector3.new(-48, 0, 88), cover)
+	palisade(Vector3.new(-40, 0, 88), Vector3.new(-16, 0, 88), cover)
+	palisade(Vector3.new(16, 0, 88), Vector3.new(40, 0, 88), cover)
+	palisade(Vector3.new(48, 0, 88), Vector3.new(72, 0, 88), cover)
+
+	-- Supplies stacked as barricades.
+	crate(Vector3.new(-12, 0, 84), 10, cover)
+	crate(Vector3.new(13, 0, 85), -15, cover)
+	barrel(Vector3.new(-14.5, 0, 87.5), cover)
+	barrel(Vector3.new(15.5, 0, 88.5), cover)
+	crate(Vector3.new(-14, 0, 128), 0, cover)
+	barrel(Vector3.new(-14, 0, 132), cover)
+	barrel(Vector3.new(14, 0, 130), cover)
+	crate(Vector3.new(14, 0, 142), 25, cover)
+	crate(Vector3.new(-30, 0, 30), 5, cover)
+	barrel(Vector3.new(-26, 0, 31), cover)
+	crate(Vector3.new(30, 0, -30), -20, cover)
+	barrel(Vector3.new(33, 0, -27), cover)
+
+	-- The battle has already reached the countryside.
+	haystack(Vector3.new(75, 0, -50), true, cover, props)
+	haystack(Vector3.new(97, 0, -28), false, cover, props)
+	haystack(Vector3.new(-90, 0, -108), false, cover, props)
+	haystack(Vector3.new(-68, 0, -138), true, cover, props)
+	haystack(Vector3.new(-95, 0, 35), false, cover, props)
+	wagonWreck(Vector3.new(-30, 0, -20), 30, cover, props)
+	wagonWreck(Vector3.new(40, 0, -150), -60, cover, props)
+	-- The barn roof and an outlying farmhouse are burning.
+	fireSource(Vector3.new(-50, 13, 150), 8, props, true, 30)
+	fireSource(Vector3.new(-100, 14, 128), 9, props, true, 30)
+
+	redoubt(northZ, halfWidth, cover, props)
+	lighting()
+end
+
+return SetDressing
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000B"><Properties><string name="Name">Units</string><ProtectedString name="Source"><![CDATA[-- Redcoats and hired militia: model construction, AI, and damage handling.
 --
 -- Units are anchored models moved by CFrame every frame. That keeps dozens of
 -- soldiers cheap and lets line infantry hold tidy formations. Each unit's
@@ -1807,6 +2466,8 @@ local WHITE = Color3.fromRGB(235, 232, 220)
 local BLACK = Color3.fromRGB(25, 25, 25)
 local WOOD = Color3.fromRGB(105, 70, 40)
 local STEEL = Color3.fromRGB(120, 120, 125)
+local GOLD = Color3.fromRGB(214, 172, 60)
+local BUFF = Color3.fromRGB(226, 214, 180)
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -1905,12 +2566,12 @@ local function addHat(model: Model, root: BasePart, hat: string, headY: number, 
 	if hat == "Tricorne" then
 		addPart(model, root, "Hat", Vector3.new(1.8, 0.35, 1.8), CFrame.new(0, headY + 0.65, 0), BLACK, Enum.Material.Fabric)
 		addPart(model, root, "HatCrown", Vector3.new(1.1, 0.5, 1.1), CFrame.new(0, headY + 0.9, 0), BLACK, Enum.Material.Fabric)
-		if def.Team == "Red" then
-			addPart(model, root, "HatTrim", Vector3.new(1.85, 0.12, 1.85), CFrame.new(0, headY + 0.55, 0), WHITE)
-		end
+		local trim = if def.DisplayName == "Officer" or def.Team == "Blue" then GOLD else WHITE
+		addPart(model, root, "HatTrim", Vector3.new(1.85, 0.12, 1.85), CFrame.new(0, headY + 0.55, 0), trim, Enum.Material.Metal)
 	elseif hat == "Bearskin" then
 		addPart(model, root, "Bearskin", Vector3.new(1.3, 2.0, 1.3), CFrame.new(0, headY + 1.3, 0), BLACK, Enum.Material.Fabric)
-		addPart(model, root, "Plate", Vector3.new(0.9, 0.9, 0.1), CFrame.new(0, headY + 0.9, -0.66), Color3.fromRGB(200, 170, 60), Enum.Material.Metal)
+		addPart(model, root, "Plate", Vector3.new(0.9, 0.9, 0.1), CFrame.new(0, headY + 0.9, -0.66), GOLD, Enum.Material.Metal)
+		addPart(model, root, "Plume", Vector3.new(0.3, 1.1, 0.3), CFrame.new(0.68, headY + 1.6, 0) * CFrame.Angles(0, 0, math.rad(-10)), Color3.fromRGB(210, 25, 30), Enum.Material.Fabric)
 	elseif hat == "Helmet" then
 		addPart(model, root, "Helmet", Vector3.new(1.25, 0.8, 1.35), CFrame.new(0, headY + 0.7, 0), BLACK, Enum.Material.Metal)
 		addPart(model, root, "Plume", Vector3.new(0.35, 0.6, 1.2), CFrame.new(0, headY + 1.25, 0.1), def.CoatColor, Enum.Material.Fabric)
@@ -1979,7 +2640,7 @@ local function buildSoldier(kind: string, def: Config.UnitDef, cf: CFrame): Unit
 	model.PrimaryPart = root
 
 	local coat = def.CoatColor
-	local breeches = if def.Team == "Red" then WHITE else Color3.fromRGB(170, 150, 110)
+	local breeches = if def.Team == "Red" then WHITE else BUFF
 
 	-- Legs and boots.
 	for _, x in { -0.5, 0.5 } do
@@ -1989,7 +2650,7 @@ local function buildSoldier(kind: string, def: Config.UnitDef, cf: CFrame): Unit
 	-- Body.
 	addPart(model, root, "Torso", Vector3.new(2, 2, 1) * s, CFrame.new(0, 0.8 * s, 0), coat, Enum.Material.Fabric)
 	addPart(model, root, "Tails", Vector3.new(2.05, 0.8, 1.05) * s, CFrame.new(0, -0.5 * s, 0.05 * s), coat, Enum.Material.Fabric)
-	local beltColor = if def.Team == "Red" then WHITE else Color3.fromRGB(190, 170, 130)
+	local beltColor = WHITE
 	for _, a in { 38, -38 } do
 		addPart(model, root, "Crossbelt", Vector3.new(0.3, 2.5, 0.08) * s, CFrame.new(0, 0.8 * s, -0.53 * s) * CFrame.Angles(0, 0, math.rad(a)), beltColor)
 	end
@@ -2011,8 +2672,32 @@ local function buildSoldier(kind: string, def: Config.UnitDef, cf: CFrame): Unit
 			CFrame.new(0.55 * s, 1.55 * s, -1.9 * s),
 		},
 	}
-	local _, leftWeld = addPosable(model, root, "LeftArm", Vector3.new(0.75, 2, 0.75) * s, poses.Idle[1], coat, Enum.Material.Fabric)
-	local _, rightWeld = addPosable(model, root, "RightArm", Vector3.new(0.75, 2, 0.75) * s, poses.Idle[2], coat, Enum.Material.Fabric)
+	local leftArm, leftWeld = addPosable(model, root, "LeftArm", Vector3.new(0.75, 2, 0.75) * s, poses.Idle[1], coat, Enum.Material.Fabric)
+	local rightArm, rightWeld = addPosable(model, root, "RightArm", Vector3.new(0.75, 2, 0.75) * s, poses.Idle[2], coat, Enum.Material.Fabric)
+	-- White cuffs (facings) that move with the arms.
+	for _, arm in { leftArm, rightArm } do
+		local cuff = Instance.new("Part")
+		cuff.Name = "Cuff"
+		cuff.Size = Vector3.new(0.82, 0.35, 0.82) * s
+		cuff.Color = WHITE
+		cuff.Material = Enum.Material.Fabric
+		cuff.CanCollide = false
+		cuff.CanQuery = false
+		cuff.CanTouch = false
+		cuff.Massless = true
+		cuff.CFrame = arm.CFrame * CFrame.new(0, -0.75 * s, 0)
+		local cw = Instance.new("WeldConstraint")
+		cw.Part0 = arm
+		cw.Part1 = cuff
+		cw.Parent = cuff
+		cuff.Parent = model
+	end
+	if kind == "Officer" then
+		for _, x in { -1, 1 } do
+			addPart(model, root, "Epaulette", Vector3.new(0.9, 0.25, 1.0) * s, CFrame.new(x * 1.05 * s, 1.85 * s, 0), GOLD, Enum.Material.Metal)
+		end
+		addPart(model, root, "Sash", Vector3.new(2.06, 0.3, 1.06) * s, CFrame.new(0, 0.05 * s, 0), Color3.fromRGB(150, 20, 40), Enum.Material.Fabric)
+	end
 
 	local weaponWeld: Weld? = nil
 	if def.Attack == "Musket" then
@@ -3076,7 +3761,7 @@ function Units.Init(map: Folder, stores: Model, state: Instance)
 end
 
 return Units
-]]></ProtectedString></Properties></Item></Item><Item class="StarterPlayer" referent="RBX00000010"><Properties><string name="Name">StarterPlayer</string></Properties><Item class="StarterPlayerScripts" referent="RBX0000000E"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX0000000B"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Redcoat Invasion client: top-down camera, mouse aiming and input.
+]]></ProtectedString></Properties></Item></Item><Item class="StarterPlayer" referent="RBX00000013"><Properties><string name="Name">StarterPlayer</string></Properties><Item class="StarterPlayerScripts" referent="RBX00000011"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX0000000D"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Redcoat Invasion client: top-down camera, mouse aiming and input.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -3088,6 +3773,7 @@ local ContextActionService = game:GetService("ContextActionService")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local Effects = require(script.Parent:WaitForChild("Effects"))
 local Interface = require(script.Parent:WaitForChild("Interface"))
+local Townsfolk = require(script.Parent:WaitForChild("Townsfolk"))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -3106,6 +3792,13 @@ end
 
 Effects.Init()
 Interface.Init()
+-- Villagers are cosmetic; never let them break the rest of the client.
+task.spawn(function()
+	local ok, err = pcall(Townsfolk.Init)
+	if not ok then
+		warn("Townsfolk failed to start:", err)
+	end
+end)
 
 ---------------------------------------------------------------------------
 -- Camera
@@ -3187,6 +3880,59 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ---------------------------------------------------------------------------
+-- Hold the gun: the server raises the arms (Motor6D.C0); here we cancel the
+-- walk/idle animation on the arm joints each frame so the hands stay on the
+-- weapon. Runs for every player's character so everyone sees it.
+---------------------------------------------------------------------------
+
+local ARM_JOINTS = { "RightShoulder", "LeftShoulder", "RightElbow", "LeftElbow", "RightWrist", "LeftWrist", "Right Shoulder", "Left Shoulder" }
+local jointCache: { [Model]: { Motor6D } } = {}
+
+local function armJoints(char: Model): { Motor6D }
+	local cached = jointCache[char]
+	if cached then
+		local valid = true
+		for _, j in cached do
+			if not j.Parent or not j:IsDescendantOf(char) then
+				valid = false
+				break
+			end
+		end
+		if valid and #cached > 0 then
+			return cached
+		end
+	end
+	local list = {}
+	for _, name in ARM_JOINTS do
+		local j = char:FindFirstChild(name, true)
+		if j and j:IsA("Motor6D") then
+			table.insert(list, j)
+		end
+	end
+	jointCache[char] = list
+	return list
+end
+
+RunService.Stepped:Connect(function()
+	for _, p in Players:GetPlayers() do
+		local char = p.Character
+		if char and char:FindFirstChild("PropWeapon") then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				for _, j in armJoints(char) do
+					j.Transform = CFrame.identity
+				end
+			end
+		end
+	end
+	for char in jointCache do
+		if not char.Parent then
+			jointCache[char] = nil
+		end
+	end
+end)
+
+---------------------------------------------------------------------------
 -- Input
 ---------------------------------------------------------------------------
 
@@ -3263,7 +4009,7 @@ end)
 ContextActionService:BindActionAtPriority("BlockJump", function()
 	return Enum.ContextActionResult.Sink
 end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Space)
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000C"><Properties><string name="Name">Effects</string><ProtectedString name="Source"><![CDATA[-- Draws the effects the server reports: musket smoke, tracers, grenades,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000E"><Properties><string name="Name">Effects</string><ProtectedString name="Source"><![CDATA[-- Draws the effects the server reports: musket smoke, tracers, grenades,
 -- explosions and cannon fire. Everything here is local and purely cosmetic.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -3271,6 +4017,7 @@ local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local SoundService = game:GetService("SoundService")
 local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
 
 local Effects = {}
 
@@ -3423,6 +4170,36 @@ local function explosion(pos: Vector3, radius: number)
 	for _ = 1, 3 do
 		smoke(pos + Vector3.new(math.random() - 0.5, 1, math.random() - 0.5) * radius * 0.4, radius * 0.5, 2)
 	end
+	-- Big blasts leave the ground burning for a few seconds.
+	if radius >= 6 then
+		local scorch = basicPart(Vector3.new(0.1, radius * 1.2, radius * 1.2), Color3.fromRGB(35, 30, 25))
+		scorch.Shape = Enum.PartType.Cylinder
+		scorch.CFrame = CFrame.new(pos.X, 0.22, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+		scorch.Transparency = 0.25
+		scorch.Parent = folder
+		local flame = basicPart(Vector3.one * 0.5, Color3.new())
+		flame.Transparency = 1
+		flame.Position = Vector3.new(pos.X, 0.8, pos.Z)
+		flame.Parent = folder
+		local fire = Instance.new("Fire")
+		fire.Size = 4
+		fire.Heat = 6
+		fire.Color = Color3.fromRGB(255, 120, 30)
+		fire.SecondaryColor = Color3.fromRGB(255, 210, 90)
+		fire.Parent = flame
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(255, 140, 50)
+		light.Range = 14
+		light.Brightness = 2
+		light.Parent = flame
+		task.delay(6, function()
+			fire.Enabled = false
+			TweenService:Create(light, TweenInfo.new(1.5), { Brightness = 0 }):Play()
+			TweenService:Create(scorch, TweenInfo.new(4), { Transparency = 1 }):Play()
+		end)
+		Debris:AddItem(flame, 9)
+		Debris:AddItem(scorch, 11)
+	end
 end
 
 local function slash(pos: Vector3, dir: Vector3)
@@ -3434,7 +4211,23 @@ local function slash(pos: Vector3, dir: Vector3)
 	sound(SOUNDS.Slash, pos, 0.5)
 end
 
+-- Make every tagged flame light flicker.
+local function startFlicker()
+	local t0 = os.clock()
+	RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		for i, light in CollectionService:GetTagged("Flicker") do
+			if light:IsA("PointLight") then
+				local base = light:GetAttribute("BaseBrightness") or 2
+				local n = math.noise(t * 3.5, i * 1.7) * 0.6 + math.sin(t * 11 + i) * 0.12
+				light.Brightness = base * (0.85 + n)
+			end
+		end
+	end)
+end
+
 function Effects.Init()
+	startFlicker()
 	local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Effect") :: RemoteEvent
 	remote.OnClientEvent:Connect(function(kind: string, ...)
 		if kind == "Shot" then
@@ -3461,7 +4254,7 @@ function Effects.Init()
 end
 
 return Effects
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000D"><Properties><string name="Name">Interface</string><ProtectedString name="Source"><![CDATA[-- HUD (health, ammo, wave info, powder stores), announcements, crosshair,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000F"><Properties><string name="Name">Interface</string><ProtectedString name="Source"><![CDATA[-- HUD (health, ammo, wave info, powder stores), announcements, crosshair,
 -- and the between-wave shop. Built entirely in code.
 
 local Players = game:GetService("Players")
@@ -4054,4 +4847,564 @@ function Interface.Init()
 end
 
 return Interface
-]]></ProtectedString></Properties></Item></Item><Item class="StarterCharacterScripts" referent="RBX0000000F"><Properties><string name="Name">StarterCharacterScripts</string></Properties></Item></Item></roblox>
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000010"><Properties><string name="Name">Townsfolk</string><ProtectedString name="Source"><![CDATA[-- Townsfolk: cosmetic villagers that make the town feel alive. They run
+-- entirely on each client (no network traffic): they wander the village,
+-- chat, and panic once the Regulars attack. They can't be shot or hurt.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+
+local Townsfolk = {}
+
+local gameState = ReplicatedStorage:WaitForChild("GameState")
+
+local SKIN_TONES = {
+	Color3.fromRGB(234, 192, 160),
+	Color3.fromRGB(210, 160, 120),
+	Color3.fromRGB(160, 110, 75),
+	Color3.fromRGB(110, 75, 50),
+}
+local CLOTH = {
+	Color3.fromRGB(110, 75, 50),
+	Color3.fromRGB(70, 90, 60),
+	Color3.fromRGB(130, 60, 45),
+	Color3.fromRGB(60, 70, 100),
+	Color3.fromRGB(150, 130, 100),
+	Color3.fromRGB(90, 60, 80),
+}
+local WHITE = Color3.fromRGB(240, 236, 225)
+local BLACK = Color3.fromRGB(30, 28, 26)
+local WOOD = Color3.fromRGB(105, 70, 40)
+
+-- Open ground in the village that folk stroll between.
+local WAYPOINTS = {
+	Vector3.new(-20, 0, 96), Vector3.new(20, 0, 96), Vector3.new(-25, 0, 115), Vector3.new(25, 0, 112),
+	Vector3.new(-22, 0, 140), Vector3.new(22, 0, 145), Vector3.new(0, 0, 155), Vector3.new(-30, 0, 160),
+	Vector3.new(35, 0, 160), Vector3.new(-62, 0, 125), Vector3.new(65, 0, 130), Vector3.new(-70, 0, 160),
+	Vector3.new(75, 0, 105), Vector3.new(-75, 0, 100), Vector3.new(0, 0, 94), Vector3.new(-5, 0, 165),
+}
+-- Where people huddle while the battle rages.
+local SHELTER = {
+	Vector3.new(-30, 0, 162), Vector3.new(-12, 0, 160), Vector3.new(10, 0, 163),
+	Vector3.new(-65, 0, 165), Vector3.new(70, 0, 165), Vector3.new(38, 0, 165),
+}
+
+local CHATTER = {
+	"Fine evening, neighbour.",
+	"Have you seen the Regulars?",
+	"Mind the powder stores!",
+	"The bread's fresh today.",
+	"My boy joined the militia.",
+	"They say the King is cross.",
+	"Liberty or death, I say!",
+	"Lovely weather for a revolution.",
+	"Is that smoke over the hill?",
+	"I hid the silver in the well.",
+}
+local PANIC = {
+	"The Regulars are coming!",
+	"To arms! To arms!",
+	"Hide the children!",
+	"Huzzah for the militia!",
+	"Run!",
+	"Save the powder!",
+	"God help us!",
+	"Give 'em what for, lads!",
+}
+local CRIER = {
+	"Hear ye, hear ye!",
+	"The Regulars march from Boston!",
+	"All militia to the North Bridge!",
+	"Defend the powder stores!",
+}
+local CRIER_PANIC = { "To arms! The Regulars are upon us!", "Every man to the line!", "Hold them at the stockade!" }
+
+type Villager = {
+	Model: Model,
+	Root: BasePart,
+	LeftLeg: Weld?,
+	RightLeg: Weld?,
+	LeftArm: Weld?,
+	RightArm: Weld?,
+	Role: string,
+	Speed: number,
+	Target: Vector3?,
+	WaitUntil: number,
+	Phase: number,
+	NextTalk: number,
+	Bubble: TextLabel,
+	Scale: number,
+	Facing: Vector3,
+	Anchor: Vector3?,
+}
+
+local folder: Folder
+local villagers: { Villager } = {}
+local chickens: { { Root: BasePart, Target: Vector3, WaitUntil: number, Head: Weld } } = {}
+local avoidParams = RaycastParams.new()
+avoidParams.FilterType = Enum.RaycastFilterType.Include
+
+local function pick<T>(list: { T }): T
+	return list[math.random(1, #list)]
+end
+
+local function flat(v: Vector3): Vector3
+	return Vector3.new(v.X, 0, v.Z)
+end
+
+local function newPart(name: string, size: Vector3, color: Color3, material: Enum.Material?): Part
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Size = size
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Massless = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	return p
+end
+
+local function fixed(model: Model, root: BasePart, name: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material?): Part
+	local p = newPart(name, size, color, material)
+	p.CFrame = root.CFrame * offset
+	local w = Instance.new("WeldConstraint")
+	w.Part0 = root
+	w.Part1 = p
+	w.Parent = p
+	p.Parent = model
+	return p
+end
+
+-- A limb hung from a joint: the weld's C0 is the joint, C1 offsets the limb
+-- so rotating C0 swings it like a pendulum.
+local function limb(model: Model, root: BasePart, name: string, size: Vector3, joint: Vector3, color: Color3, material: Enum.Material?): (Part, Weld)
+	local p = newPart(name, size, color, material)
+	local w = Instance.new("Weld")
+	w.Part0 = root
+	w.Part1 = p
+	w.C0 = CFrame.new(joint)
+	w.C1 = CFrame.new(0, size.Y / 2, 0)
+	p.CFrame = root.CFrame * w.C0 * w.C1:Inverse()
+	w.Parent = p
+	p.Parent = model
+	return p, w
+end
+
+local function makeBubble(root: BasePart, height: number): TextLabel
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.fromOffset(170, 40)
+	gui.StudsOffset = Vector3.new(0, height, 0)
+	gui.MaxDistance = 120
+	gui.LightInfluence = 0
+	local text = Instance.new("TextLabel")
+	text.Size = UDim2.fromScale(1, 1)
+	text.BackgroundColor3 = Color3.fromRGB(250, 244, 228)
+	text.BackgroundTransparency = 1
+	text.TextTransparency = 1
+	text.TextColor3 = Color3.fromRGB(45, 32, 22)
+	text.Font = Enum.Font.Antique
+	text.TextScaled = true
+	text.TextWrapped = true
+	text.Text = ""
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = text
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 6)
+	pad.PaddingRight = UDim.new(0, 6)
+	pad.PaddingTop = UDim.new(0, 3)
+	pad.PaddingBottom = UDim.new(0, 3)
+	pad.Parent = text
+	text.Parent = gui
+	gui.Parent = root
+	return text
+end
+
+local function say(v: Villager, line: string, duration: number?)
+	local bubble = v.Bubble
+	bubble.Text = line
+	bubble.BackgroundTransparency = 0.1
+	bubble.TextTransparency = 0
+	local stamp = os.clock()
+	bubble:SetAttribute("Stamp", stamp)
+	task.delay(duration or 3, function()
+		if bubble:GetAttribute("Stamp") == stamp then
+			TweenService:Create(bubble, TweenInfo.new(0.5), { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Building villagers
+---------------------------------------------------------------------------
+
+local function buildVillager(role: string, pos: Vector3): Villager
+	local isWoman = role == "Woman"
+	local isChild = role == "Child" or role == "Drummer"
+	local s = if isChild then 0.68 else 1
+	local skin = pick(SKIN_TONES)
+	local cloth = pick(CLOTH)
+
+	local model = Instance.new("Model")
+	model.Name = "Villager"
+	local root = newPart("Root", Vector3.new(2, 5, 1) * s, Color3.new(), nil)
+	root.Transparency = 1
+	root.Anchored = true
+	root.CFrame = CFrame.new(pos.X, 2.5 * s, pos.Z)
+	root.Parent = model
+	model.PrimaryPart = root
+
+	local leftLeg, rightLeg, leftArm, rightArm
+	if isWoman then
+		-- Long skirt hides the legs; it sways a little instead.
+		fixed(model, root, "Skirt", Vector3.new(2.3, 2.6, 1.5) * s, CFrame.new(0, -1.2 * s, 0), cloth, Enum.Material.Fabric)
+		fixed(model, root, "Apron", Vector3.new(1.4, 2.2, 0.1) * s, CFrame.new(0, -1.1 * s, -0.78 * s), WHITE, Enum.Material.Fabric)
+		fixed(model, root, "Bodice", Vector3.new(1.8, 1.9, 0.9) * s, CFrame.new(0, 0.85 * s, 0), cloth:Lerp(BLACK, 0.3), Enum.Material.Fabric)
+	else
+		local breeches = if role == "Blacksmith" then Color3.fromRGB(70, 60, 50) else Color3.fromRGB(190, 170, 130)
+		_, leftLeg = limb(model, root, "LeftLeg", Vector3.new(0.85, 2.4, 0.85) * s, Vector3.new(-0.5, -0.1, 0) * s, breeches)
+		_, rightLeg = limb(model, root, "RightLeg", Vector3.new(0.85, 2.4, 0.85) * s, Vector3.new(0.5, -0.1, 0) * s, breeches)
+		local coat = if role == "Drummer" then Color3.fromRGB(32, 45, 100) else cloth
+		fixed(model, root, "Torso", Vector3.new(2, 2, 1) * s, CFrame.new(0, 0.9 * s, 0), coat, Enum.Material.Fabric)
+		if role == "Blacksmith" then
+			fixed(model, root, "LeatherApron", Vector3.new(1.6, 2.6, 0.1) * s, CFrame.new(0, 0.2 * s, -0.55 * s), Color3.fromRGB(90, 60, 35), Enum.Material.Leather)
+		else
+			fixed(model, root, "Waistcoat", Vector3.new(1.2, 1.6, 0.1) * s, CFrame.new(0, 0.9 * s, -0.52 * s), pick(CLOTH):Lerp(WHITE, 0.4), Enum.Material.Fabric)
+		end
+	end
+	local armColor = if isWoman then cloth:Lerp(BLACK, 0.3) elseif role == "Blacksmith" then skin elseif role == "Drummer" then Color3.fromRGB(32, 45, 100) else cloth
+	_, leftArm = limb(model, root, "LeftArm", Vector3.new(0.7, 1.9, 0.7) * s, Vector3.new(-1.3, 1.8, 0) * s, armColor, Enum.Material.Fabric)
+	_, rightArm = limb(model, root, "RightArm", Vector3.new(0.7, 1.9, 0.7) * s, Vector3.new(1.3, 1.8, 0) * s, armColor, Enum.Material.Fabric)
+
+	local headY = 2.4 * s
+	fixed(model, root, "Head", Vector3.new(1.1, 1.1, 1.1) * s, CFrame.new(0, headY, 0), skin)
+	if isWoman then
+		fixed(model, root, "MobCap", Vector3.new(1.3, 0.6, 1.3) * s, CFrame.new(0, headY + 0.55 * s, 0.05), WHITE, Enum.Material.Fabric)
+	elseif role == "Crier" then
+		fixed(model, root, "Hat", Vector3.new(1.8, 0.35, 1.8), CFrame.new(0, headY + 0.65, 0), BLACK, Enum.Material.Fabric)
+		fixed(model, root, "HatCrown", Vector3.new(1.1, 0.5, 1.1), CFrame.new(0, headY + 0.9, 0), BLACK, Enum.Material.Fabric)
+		fixed(model, root, "HatTrim", Vector3.new(1.85, 0.12, 1.85), CFrame.new(0, headY + 0.55, 0), Color3.fromRGB(214, 172, 60), Enum.Material.Metal)
+	elseif role == "Farmer" then
+		fixed(model, root, "StrawHat", Vector3.new(2.2, 0.25, 2.2), CFrame.new(0, headY + 0.6, 0), Color3.fromRGB(215, 190, 120), Enum.Material.Fabric)
+		fixed(model, root, "StrawCrown", Vector3.new(1.1, 0.5, 1.1), CFrame.new(0, headY + 0.85, 0), Color3.fromRGB(215, 190, 120), Enum.Material.Fabric)
+	elseif role == "Drummer" then
+		fixed(model, root, "Cap", Vector3.new(1.2, 0.6, 1.2) * s, CFrame.new(0, headY + 0.55 * s, 0), BLACK, Enum.Material.Fabric)
+	else
+		fixed(model, root, "Hair", Vector3.new(1.15, 0.45, 1.15) * s, CFrame.new(0, headY + 0.45 * s, 0.05), pick({ BLACK, Color3.fromRGB(110, 70, 40), Color3.fromRGB(200, 170, 110) }))
+	end
+
+	-- Role props.
+	if role == "Farmer" then
+		local fork = newPart("Pitchfork", Vector3.new(0.2, 6, 0.2), WOOD, Enum.Material.Wood)
+		fork.CFrame = root.CFrame * CFrame.new(1.8, 0.8, -0.3)
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = root
+		w.Part1 = fork
+		w.Parent = fork
+		fork.Parent = model
+		fixed(model, root, "Tines", Vector3.new(0.9, 0.8, 0.15), CFrame.new(1.8, 4.1, -0.3), Color3.fromRGB(120, 120, 125), Enum.Material.Metal)
+	elseif role == "Drummer" then
+		local drum = newPart("Drum", Vector3.new(1.0, 1.4, 1.4) * s, Color3.fromRGB(180, 30, 35), Enum.Material.Wood)
+		drum.Shape = Enum.PartType.Cylinder
+		drum.CFrame = root.CFrame * CFrame.new(0, 0.2 * s, -0.95 * s) * CFrame.Angles(0, 0, math.rad(90))
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = root
+		w.Part1 = drum
+		w.Parent = drum
+		drum.Parent = model
+	elseif role == "Crier" then
+		local bell = newPart("Bell", Vector3.new(0.7, 0.8, 0.7), Color3.fromRGB(214, 172, 60), Enum.Material.Metal)
+		local w = Instance.new("Weld")
+		w.Part0 = model:FindFirstChild("RightArm") :: BasePart
+		w.Part1 = bell
+		w.C0 = CFrame.new(0, -1.1, 0)
+		bell.CFrame = (w.Part0 :: BasePart).CFrame * w.C0
+		w.Parent = bell
+		bell.Parent = model
+	elseif role == "Woman" and math.random() < 0.5 then
+		local basket = newPart("Basket", Vector3.new(1.4, 0.8, 1.0), Color3.fromRGB(170, 130, 70), Enum.Material.Fabric)
+		local w = Instance.new("Weld")
+		w.Part0 = model:FindFirstChild("LeftArm") :: BasePart
+		w.Part1 = basket
+		w.C0 = CFrame.new(0.3, -1.1, 0)
+		basket.CFrame = (w.Part0 :: BasePart).CFrame * w.C0
+		w.Parent = basket
+		basket.Parent = model
+	elseif role == "Blacksmith" then
+		local hammer = newPart("Hammer", Vector3.new(0.2, 1.4, 0.2), WOOD, Enum.Material.Wood)
+		local w = Instance.new("Weld")
+		w.Part0 = model:FindFirstChild("RightArm") :: BasePart
+		w.Part1 = hammer
+		w.C0 = CFrame.new(0, -1.0, -0.6) * CFrame.Angles(math.rad(90), 0, 0)
+		hammer.CFrame = (w.Part0 :: BasePart).CFrame * w.C0
+		w.Parent = hammer
+		hammer.Parent = model
+		local head = newPart("HammerHead", Vector3.new(0.45, 0.45, 0.8), Color3.fromRGB(60, 60, 65), Enum.Material.Metal)
+		local hw = Instance.new("WeldConstraint")
+		head.CFrame = hammer.CFrame * CFrame.new(0, 0.7, 0)
+		hw.Part0 = hammer
+		hw.Part1 = head
+		hw.Parent = head
+		head.Parent = model
+	end
+
+	model.Parent = folder
+
+	local speedByRole = { Child = 9, Crier = 4.5, Farmer = 5, Woman = 5, Man = 5.5 }
+	return {
+		Model = model,
+		Root = root,
+		LeftLeg = leftLeg,
+		RightLeg = rightLeg,
+		LeftArm = leftArm,
+		RightArm = rightArm,
+		Role = role,
+		Speed = speedByRole[role] or 0,
+		Target = nil,
+		WaitUntil = os.clock() + math.random() * 4,
+		Phase = math.random() * 10,
+		NextTalk = os.clock() + 3 + math.random() * 12,
+		Bubble = makeBubble(root, 4 * s),
+		Scale = s,
+		Facing = Vector3.new(0, 0, -1),
+		Anchor = nil,
+	}
+end
+
+local function buildChicken(pos: Vector3)
+	local model = Instance.new("Model")
+	model.Name = "Chicken"
+	local root = newPart("Root", Vector3.new(0.8, 0.8, 1.1), Color3.fromRGB(245, 240, 230), Enum.Material.Fabric)
+	root.Anchored = true
+	root.CFrame = CFrame.new(pos.X, 0.65, pos.Z)
+	root.Parent = model
+	local head = newPart("Head", Vector3.new(0.45, 0.5, 0.45), Color3.fromRGB(245, 240, 230), Enum.Material.Fabric)
+	local w = Instance.new("Weld")
+	w.Part0 = root
+	w.Part1 = head
+	w.C0 = CFrame.new(0, 0.45, -0.55)
+	head.CFrame = root.CFrame * w.C0
+	w.Parent = head
+	head.Parent = model
+	fixed(model, head :: any, "Comb", Vector3.new(0.12, 0.25, 0.3), CFrame.new(0, 0.3, 0), Color3.fromRGB(200, 30, 30))
+	fixed(model, head :: any, "Beak", Vector3.new(0.15, 0.12, 0.25), CFrame.new(0, 0, -0.3), Color3.fromRGB(240, 170, 40))
+	fixed(model, root, "Tail", Vector3.new(0.5, 0.6, 0.2), CFrame.new(0, 0.3, 0.6) * CFrame.Angles(math.rad(25), 0, 0), Color3.fromRGB(230, 225, 215))
+	for _, x in { -0.2, 0.2 } do
+		fixed(model, root, "Leg", Vector3.new(0.1, 0.35, 0.1), CFrame.new(x, -0.55, 0), Color3.fromRGB(240, 170, 40))
+	end
+	model.Parent = folder
+	table.insert(chickens, { Root = root, Target = pos, WaitUntil = 0, Head = w })
+end
+
+---------------------------------------------------------------------------
+-- Behaviour
+---------------------------------------------------------------------------
+
+local function blocked(pos: Vector3, dir: Vector3): boolean
+	return workspace:Raycast(Vector3.new(pos.X, 2, pos.Z), dir * 3, avoidParams) ~= nil
+end
+
+local function walk(v: Villager, dt: number, speed: number)
+	local pos = v.Root.Position
+	local target = v.Target :: Vector3
+	local delta = flat(target - pos)
+	if delta.Magnitude < 1 then
+		v.Target = nil
+		return
+	end
+	local dir = delta.Unit
+	if blocked(pos, dir) then
+		-- Try to sidestep; give up on this destination if boxed in.
+		local side = Vector3.new(-dir.Z, 0, dir.X)
+		if not blocked(pos, side) then
+			dir = side
+		elseif not blocked(pos, -side) then
+			dir = -side
+		else
+			v.Target = nil
+			return
+		end
+	end
+	v.Facing = v.Facing:Lerp(dir, math.min(1, dt * 6))
+	if v.Facing.Magnitude < 0.01 then
+		v.Facing = dir
+	end
+	local newPos = pos + dir * speed * dt
+	v.Root.CFrame = CFrame.lookAt(newPos, newPos + flat(v.Facing).Unit)
+
+	-- Swing legs and arms.
+	v.Phase += dt * speed * 1.4
+	local swing = math.sin(v.Phase) * math.rad(math.min(45, speed * 4))
+	if v.LeftLeg then
+		v.LeftLeg.C0 = CFrame.new(v.LeftLeg.C0.Position) * CFrame.Angles(swing, 0, 0)
+	end
+	if v.RightLeg then
+		v.RightLeg.C0 = CFrame.new(v.RightLeg.C0.Position) * CFrame.Angles(-swing, 0, 0)
+	end
+	if v.LeftArm then
+		v.LeftArm.C0 = CFrame.new(v.LeftArm.C0.Position) * CFrame.Angles(-swing * 0.7, 0, 0)
+	end
+	if v.RightArm and v.Role ~= "Crier" then
+		v.RightArm.C0 = CFrame.new(v.RightArm.C0.Position) * CFrame.Angles(swing * 0.7, 0, 0)
+	end
+end
+
+local function standStill(v: Villager)
+	for _, w in { v.LeftLeg, v.RightLeg, v.LeftArm, v.RightArm } do
+		if w then
+			w.C0 = CFrame.new(w.C0.Position)
+		end
+	end
+end
+
+local function sparks(pos: Vector3)
+	for _ = 1, 5 do
+		local p = newPart("Spark", Vector3.one * 0.2, Color3.fromRGB(255, 200, 80), Enum.Material.Neon)
+		p.Anchored = true
+		p.Position = pos
+		p.Parent = folder
+		local offset = Vector3.new(math.random() - 0.5, math.random() * 0.8, math.random() - 0.5) * 3
+		TweenService:Create(p, TweenInfo.new(0.35), { Position = pos + offset, Transparency = 1 }):Play()
+		Debris:AddItem(p, 0.4)
+	end
+end
+
+local function updateVillager(v: Villager, dt: number, panic: boolean)
+	local t = os.clock()
+	local role = v.Role
+
+	if role == "Blacksmith" then
+		-- Hammer the anvil; pause for a rest now and then.
+		v.Phase += dt * 5
+		local beat = math.sin(v.Phase)
+		if v.RightArm then
+			v.RightArm.C0 = CFrame.new(v.RightArm.C0.Position) * CFrame.Angles(math.rad(70 + beat * 55), 0, 0)
+		end
+		if beat < -0.97 and t - (v.WaitUntil or 0) > 0.5 then
+			v.WaitUntil = t
+			sparks(v.Root.Position + v.Root.CFrame.LookVector * 1.6 + Vector3.new(0, -0.4, 0))
+		end
+	elseif role == "Drummer" then
+		v.Phase += dt * (if panic then 14 else 8)
+		if v.LeftArm and v.RightArm then
+			v.LeftArm.C0 = CFrame.new(v.LeftArm.C0.Position) * CFrame.Angles(math.rad(50 + math.sin(v.Phase) * 25), 0, math.rad(-20))
+			v.RightArm.C0 = CFrame.new(v.RightArm.C0.Position) * CFrame.Angles(math.rad(50 - math.sin(v.Phase) * 25), 0, math.rad(20))
+		end
+	else
+		local speed = v.Speed * (if panic then 2 else 1)
+		if v.Target then
+			walk(v, dt, speed)
+		elseif t >= v.WaitUntil then
+			if panic and role ~= "Crier" then
+				v.Target = pick(SHELTER) + Vector3.new(math.random(-4, 4), 0, math.random(-3, 3))
+			elseif v.Anchor then
+				v.Target = v.Anchor + Vector3.new(math.random(-10, 10), 0, math.random(-10, 10))
+			else
+				v.Target = pick(WAYPOINTS) + Vector3.new(math.random(-4, 4), 0, math.random(-4, 4))
+			end
+			v.WaitUntil = t + (if panic then 0.5 + math.random() * 1.5 else 2 + math.random() * 6)
+		else
+			standStill(v)
+			if role == "Crier" and v.RightArm then
+				-- Ring the bell.
+				v.RightArm.C0 = CFrame.new(v.RightArm.C0.Position) * CFrame.Angles(math.rad(120 + math.sin(t * 14) * 20), 0, 0)
+			end
+		end
+	end
+
+	if t >= v.NextTalk then
+		local line
+		if role == "Crier" then
+			line = pick(if panic then CRIER_PANIC else CRIER)
+		elseif role == "Drummer" or role == "Blacksmith" then
+			line = if panic then pick(PANIC) else nil
+		else
+			line = pick(if panic then PANIC else CHATTER)
+		end
+		if line then
+			say(v, line, 3)
+		end
+		v.NextTalk = t + (if role == "Crier" then 7 else 9) + math.random() * (if panic then 6 else 18)
+	end
+end
+
+local function updateChickens(dt: number)
+	local t = os.clock()
+	for _, c in chickens do
+		local pos = c.Root.Position
+		local delta = flat(c.Target - pos)
+		if delta.Magnitude > 0.5 then
+			local dir = delta.Unit
+			local newPos = pos + dir * 4 * dt
+			-- Bob as they waddle.
+			local bob = math.abs(math.sin(t * 14)) * 0.15
+			c.Root.CFrame = CFrame.lookAt(Vector3.new(newPos.X, 0.65 + bob, newPos.Z), Vector3.new(newPos.X, 0.65 + bob, newPos.Z) + dir)
+			c.Head.C0 = CFrame.new(0, 0.45, -0.55)
+		elseif t >= c.WaitUntil then
+			c.Target = pos + Vector3.new(math.random(-8, 8), 0, math.random(-8, 8))
+			c.Target = Vector3.new(math.clamp(c.Target.X, -40, 40), 0, math.clamp(c.Target.Z, 95, 165))
+			if blocked(pos, flat(c.Target - pos).Unit) then
+				c.Target = pos
+			end
+			c.WaitUntil = t + 1 + math.random() * 4
+		else
+			-- Peck at the ground.
+			local peck = math.max(0, math.sin(t * 10 + pos.X)) * 0.5
+			c.Head.C0 = CFrame.new(0, 0.45 - peck, -0.55 - peck * 0.4) * CFrame.Angles(-peck * 1.5, 0, 0)
+		end
+	end
+end
+
+function Townsfolk.Init()
+	local map = workspace:WaitForChild("Map")
+	local cover = map:WaitForChild("Cover")
+	local stores = map:WaitForChild("PowderStores")
+	avoidParams.FilterDescendantsInstances = { cover, stores }
+	-- Wait for the props (built just before the map is parented).
+	local anvil = map:WaitForChild("Decor"):WaitForChild("Props"):WaitForChild("Anvil", 10) :: BasePart?
+
+	folder = Instance.new("Folder")
+	folder.Name = "Townsfolk"
+	folder.Parent = workspace
+
+	local roles = { "Man", "Man", "Man", "Woman", "Woman", "Woman", "Woman", "Child", "Child", "Child", "Farmer", "Crier" }
+	for _, role in roles do
+		local start = pick(WAYPOINTS) + Vector3.new(math.random(-5, 5), 0, math.random(-5, 5))
+		local v = buildVillager(role, start)
+		if role == "Farmer" then
+			v.Anchor = Vector3.new(-80, 0, 125)
+		end
+		table.insert(villagers, v)
+	end
+
+	if anvil then
+		local smithPos = anvil.Position + Vector3.new(0, 0, -2)
+		local smith = buildVillager("Blacksmith", smithPos)
+		smith.Root.CFrame = CFrame.lookAt(Vector3.new(smithPos.X, smith.Root.Position.Y, smithPos.Z), Vector3.new(anvil.Position.X, smith.Root.Position.Y, anvil.Position.Z))
+		table.insert(villagers, smith)
+	end
+
+	local drummer = buildVillager("Drummer", Vector3.new(-6, 0, 122))
+	drummer.Root.CFrame = CFrame.lookAt(drummer.Root.Position, drummer.Root.Position + Vector3.new(0, 0, -1))
+	table.insert(villagers, drummer)
+
+	for _ = 1, 8 do
+		buildChicken(Vector3.new(math.random(-35, 35), 0, math.random(145, 162)))
+	end
+
+	RunService.Heartbeat:Connect(function(dt)
+		local panic = gameState:GetAttribute("Phase") == "Wave"
+		for _, v in villagers do
+			updateVillager(v, math.min(dt, 0.1), panic)
+		end
+		updateChickens(math.min(dt, 0.1))
+	end)
+end
+
+return Townsfolk
+]]></ProtectedString></Properties></Item></Item><Item class="StarterCharacterScripts" referent="RBX00000012"><Properties><string name="Name">StarterCharacterScripts</string></Properties></Item></Item></roblox>
