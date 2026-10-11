@@ -1,0 +1,3858 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Workspace" referent="RBX00000001"><Properties><string name="Name">Workspace</string></Properties></Item><Item class="ReplicatedStorage" referent="RBX00000004"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX00000003"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX00000002"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Shared tuning data for Redcoat Invasion.
+-- Everything gameplay-related that you may want to tweak lives here.
+
+local Config = {}
+
+Config.GameName = "Redcoat Invasion"
+
+-- Map layout (studs). Enemies enter from the north (negative Z) and march
+-- south toward the powder stores in the village (positive Z).
+Config.Map = {
+	HalfWidth = 160,
+	NorthEdge = -230,
+	SouthEdge = 170,
+	EnemySpawnZ = -215,
+	StoresPosition = Vector3.new(0, 0, 135),
+	PlayerSpawn = Vector3.new(0, 3, 105),
+}
+
+-- Height that musket balls travel at. Cover taller than this blocks shots.
+Config.ShotHeight = 3
+
+Config.Rounds = {
+	IntermissionTime = 25, -- seconds of shopping between waves
+	FirstIntermission = 15,
+	FinalWave = 15, -- survive this wave to win
+	GameOverTime = 12,
+	KillReward = 10,
+	WaveClearBonus = 75,
+}
+
+Config.Stores = {
+	MaxHealth = 1000,
+	RepairCost = 100,
+	RepairAmount = 250,
+}
+
+Config.Player = {
+	MaxHealth = 100,
+	WalkSpeed = 16,
+	ReloadWalkSpeed = 10,
+	StartingMoney = 0,
+}
+
+-- Player weapons. Spread is the max angle (degrees) a ball strays from aim.
+export type WeaponDef = {
+	Name: string,
+	Order: number,
+	Price: number,
+	Damage: number,
+	Range: number,
+	Spread: number,
+	Pellets: number,
+	Capacity: number,
+	ReloadTime: number,
+	FireCooldown: number,
+	Description: string,
+}
+
+Config.Weapons = {
+	Musket = {
+		Name = "Musket",
+		Order = 1,
+		Price = 0,
+		Damage = 60,
+		Range = 110,
+		Spread = 4,
+		Pellets = 1,
+		Capacity = 1,
+		ReloadTime = 2.6,
+		FireCooldown = 0.2,
+		Description = "Brown Bess style smoothbore. Reliable.",
+	},
+	Pistols = {
+		Name = "Brace of Pistols",
+		Order = 2,
+		Price = 200,
+		Damage = 45,
+		Range = 70,
+		Spread = 6,
+		Pellets = 1,
+		Capacity = 2,
+		ReloadTime = 2.4,
+		FireCooldown = 0.25,
+		Description = "Two shots before reloading. Short ranged.",
+	},
+	Blunderbuss = {
+		Name = "Blunderbuss",
+		Order = 3,
+		Price = 300,
+		Damage = 30,
+		Range = 50,
+		Spread = 14,
+		Pellets = 6,
+		Capacity = 1,
+		ReloadTime = 3.0,
+		FireCooldown = 0.2,
+		Description = "Fires a handful of shot. Devastating up close.",
+	},
+	LongRifle = {
+		Name = "Long Rifle",
+		Order = 4,
+		Price = 450,
+		Damage = 140,
+		Range = 200,
+		Spread = 0.8,
+		Pellets = 1,
+		Capacity = 1,
+		ReloadTime = 3.6,
+		FireCooldown = 0.2,
+		Description = "Pennsylvania rifle. Deadly accurate, slow to load.",
+	},
+} :: { [string]: WeaponDef }
+
+Config.Melee = {
+	Damage = 70,
+	Range = 8,
+	ArcDegrees = 100,
+	Cooldown = 1.0,
+}
+
+-- Upgrades: each level costs BaseCost * level.
+export type UpgradeDef = {
+	Name: string,
+	Order: number,
+	MaxLevel: number,
+	BaseCost: number,
+	PerLevel: number,
+	Description: string,
+}
+
+Config.Upgrades = {
+	Reload = { Name = "Quick Loading", Order = 1, MaxLevel = 5, BaseCost = 60, PerLevel = 0.12, Description = "-12% reload time per level" },
+	Accuracy = { Name = "Marksmanship", Order = 2, MaxLevel = 5, BaseCost = 50, PerLevel = 0.15, Description = "-15% spread per level" },
+	Damage = { Name = "Heavy Charge", Order = 3, MaxLevel = 5, BaseCost = 70, PerLevel = 0.12, Description = "+12% damage per level" },
+	Health = { Name = "Toughness", Order = 4, MaxLevel = 5, BaseCost = 50, PerLevel = 25, Description = "+25 max health per level" },
+	Speed = { Name = "Fleet Foot", Order = 5, MaxLevel = 3, BaseCost = 60, PerLevel = 2, Description = "+2 walk speed per level" },
+} :: { [string]: UpgradeDef }
+
+Config.Allies = {
+	HireCost = 150,
+	MaxPerPlayer = 4,
+}
+
+-- Unit definitions shared by redcoats and hired militia.
+export type UnitDef = {
+	DisplayName: string,
+	Team: string,
+	Health: number,
+	Speed: number,
+	Attack: string, -- "Musket" | "Grenade" | "Sabre" | "Cannon"
+	Damage: number,
+	Range: number,
+	Reload: number,
+	Spread: number,
+	AimTime: number,
+	Bounty: number,
+	CoatColor: Color3,
+	Hat: string, -- "Tricorne" | "Bearskin" | "Helmet" | "Cap" | "None"
+	Scale: number?,
+}
+
+Config.Units = {
+	Regular = {
+		DisplayName = "Redcoat",
+		Team = "Red",
+		Health = 100,
+		Speed = 7,
+		Attack = "Musket",
+		Damage = 25,
+		Range = 85,
+		Reload = 5.5,
+		Spread = 5,
+		AimTime = 1.0,
+		Bounty = 10,
+		CoatColor = Color3.fromRGB(178, 34, 34),
+		Hat = "Tricorne",
+	},
+	LightInfantry = {
+		DisplayName = "Light Infantry",
+		Team = "Red",
+		Health = 70,
+		Speed = 13,
+		Attack = "Musket",
+		Damage = 20,
+		Range = 70,
+		Reload = 4.0,
+		Spread = 6,
+		AimTime = 0.8,
+		Bounty = 12,
+		CoatColor = Color3.fromRGB(200, 60, 50),
+		Hat = "Cap",
+	},
+	Grenadier = {
+		DisplayName = "Grenadier",
+		Team = "Red",
+		Health = 200,
+		Speed = 6,
+		Attack = "Grenade",
+		Damage = 45,
+		Range = 55,
+		Reload = 6.0,
+		Spread = 0,
+		AimTime = 0.6,
+		Bounty = 25,
+		CoatColor = Color3.fromRGB(150, 20, 25),
+		Hat = "Bearskin",
+		Scale = 1.15,
+	},
+	Officer = {
+		DisplayName = "Officer",
+		Team = "Red",
+		Health = 130,
+		Speed = 8,
+		Attack = "Musket",
+		Damage = 30,
+		Range = 60,
+		Reload = 3.0,
+		Spread = 4,
+		AimTime = 0.6,
+		Bounty = 40,
+		CoatColor = Color3.fromRGB(220, 20, 40),
+		Hat = "Tricorne",
+	},
+	Dragoon = {
+		DisplayName = "Dragoon",
+		Team = "Red",
+		Health = 160,
+		Speed = 22,
+		Attack = "Sabre",
+		Damage = 35,
+		Range = 5,
+		Reload = 1.4,
+		Spread = 0,
+		AimTime = 0,
+		Bounty = 30,
+		CoatColor = Color3.fromRGB(170, 30, 30),
+		Hat = "Helmet",
+	},
+	Cannon = {
+		DisplayName = "Field Gun",
+		Team = "Red",
+		Health = 350,
+		Speed = 0,
+		Attack = "Cannon",
+		Damage = 80,
+		Range = 400,
+		Reload = 9.0,
+		Spread = 3,
+		AimTime = 1.6,
+		Bounty = 60,
+		CoatColor = Color3.fromRGB(178, 34, 34),
+		Hat = "None",
+	},
+	Militia = {
+		DisplayName = "Minuteman",
+		Team = "Blue",
+		Health = 100,
+		Speed = 14,
+		Attack = "Musket",
+		Damage = 50,
+		Range = 90,
+		Reload = 4.5,
+		Spread = 4,
+		AimTime = 0.5,
+		Bounty = 0,
+		CoatColor = Color3.fromRGB(110, 80, 50),
+		Hat = "Tricorne",
+	},
+} :: { [string]: UnitDef }
+
+-- Officers make nearby redcoats reload faster.
+Config.OfficerAura = { Radius = 35, ReloadMultiplier = 0.75 }
+
+-- Wave composition. Line infantry spawn as formations (ranks of Regulars);
+-- everything else spawns individually across the north edge.
+export type WaveDef = {
+	Formations: { { Ranks: number, Files: number, Officer: boolean } },
+	LightInfantry: number,
+	Grenadier: number,
+	Dragoon: number,
+	Cannon: number,
+	Name: string?,
+}
+
+function Config.GetWave(wave: number): WaveDef
+	local formations = {}
+	local formationCount = math.min(1 + math.floor((wave - 1) / 4), 3)
+	for i = 1, formationCount do
+		table.insert(formations, {
+			Ranks = if wave >= 11 then 2 else 1,
+			Files = if wave >= 11 then 7 else math.min(4 + math.ceil(wave / 2), 9),
+			Officer = wave >= 2 and (i % 2 == 1),
+		})
+	end
+
+	local def: WaveDef = {
+		Formations = formations,
+		LightInfantry = math.floor(wave * 0.8),
+		Grenadier = if wave >= 4 then math.floor((wave - 1) / 3) else 0,
+		Dragoon = if wave >= 5 then math.floor((wave - 2) / 3) else 0,
+		Cannon = if wave >= 7 then 1 + math.floor((wave - 7) / 4) else 0,
+	}
+
+	if wave == 1 then
+		def.Name = "The Regulars Are Coming!"
+	elseif wave == 5 then
+		def.Name = "The King's Dragoons"
+	elseif wave == 10 then
+		def.Name = "Grenadiers Advance"
+	elseif wave == Config.Rounds.FinalWave then
+		def.Name = "The Final Push"
+		def.Grenadier += 2
+		def.Dragoon += 2
+	end
+
+	return def
+end
+
+return Config
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ServerScriptService" referent="RBX0000000A"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="ModuleScript" referent="RBX00000005"><Properties><string name="Name">FX</string><ProtectedString name="Source"><![CDATA[-- Server -> client visual effects. The server decides *what* happened; every
+-- client draws smoke, tracers, grenades and cannonballs locally.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local FX = {}
+
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local effectRemote = remotes:WaitForChild("Effect") :: RemoteEvent
+local announceRemote = remotes:WaitForChild("Announce") :: RemoteEvent
+
+-- One musket discharge: smoke at the muzzle plus a tracer to each ball's end.
+function FX.Shot(from: Vector3, ends: { Vector3 }, team: string)
+	effectRemote:FireAllClients("Shot", from, ends, team)
+end
+
+function FX.Hit(pos: Vector3, isFlesh: boolean)
+	effectRemote:FireAllClients("Hit", pos, isFlesh)
+end
+
+function FX.Grenade(from: Vector3, to: Vector3, duration: number)
+	effectRemote:FireAllClients("Grenade", from, to, duration)
+end
+
+function FX.Explosion(pos: Vector3, radius: number)
+	effectRemote:FireAllClients("Explosion", pos, radius)
+end
+
+function FX.CannonWarn(from: Vector3, to: Vector3, duration: number)
+	effectRemote:FireAllClients("CannonWarn", from, to, duration)
+end
+
+-- Red danger circle on the ground (where a grenade will land).
+function FX.Marker(pos: Vector3, radius: number, duration: number)
+	effectRemote:FireAllClients("Marker", pos, radius, duration)
+end
+
+function FX.Cannonball(from: Vector3, to: Vector3, duration: number)
+	effectRemote:FireAllClients("Cannonball", from, to, duration)
+end
+
+function FX.Slash(pos: Vector3, dir: Vector3)
+	effectRemote:FireAllClients("Slash", pos, dir)
+end
+
+function FX.Announce(text: string, color: Color3?, target: Player?)
+	if target then
+		announceRemote:FireClient(target, text, color)
+	else
+		announceRemote:FireAllClients(text, color)
+	end
+end
+
+return FX
+]]></ProtectedString></Properties></Item><Item class="Script" referent="RBX00000006"><Properties><string name="Name">GameServer</string><ProtectedString name="Source"><![CDATA[-- Redcoat Invasion: main server script.
+-- Builds the map, then runs the loop: intermission (shop) -> wave -> ...
+-- until the powder stores fall, every player is down, or the final wave is won.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+
+-- Networking objects must exist before the other modules load.
+local remotes = Instance.new("Folder")
+remotes.Name = "Remotes"
+for _, name in { "Fire", "Reload", "Melee", "Equip", "Ready", "Effect", "Announce" } do
+	local r = Instance.new("RemoteEvent")
+	r.Name = name
+	r.Parent = remotes
+end
+local purchaseRemote = Instance.new("RemoteFunction")
+purchaseRemote.Name = "Purchase"
+purchaseRemote.Parent = remotes
+remotes.Parent = ReplicatedStorage
+
+local gameState = Instance.new("Configuration")
+gameState.Name = "GameState"
+gameState:SetAttribute("Phase", "Waiting")
+gameState:SetAttribute("Wave", 0)
+gameState:SetAttribute("FinalWave", Config.Rounds.FinalWave)
+gameState:SetAttribute("PhaseEnd", 0)
+gameState:SetAttribute("EnemiesLeft", 0)
+gameState:SetAttribute("StoresHealth", Config.Stores.MaxHealth)
+gameState:SetAttribute("StoresMax", Config.Stores.MaxHealth)
+gameState:SetAttribute("WaveName", "")
+gameState.Parent = ReplicatedStorage
+
+local effects = Instance.new("Folder")
+effects.Name = "Effects"
+effects.Parent = workspace
+
+Players.CharacterAutoLoads = false
+
+local FX = require(script.Parent:WaitForChild("FX"))
+local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
+local Units = require(script.Parent:WaitForChild("Units"))
+local PlayerManager = require(script.Parent:WaitForChild("PlayerManager"))
+
+local map, stores = MapBuilder.Build()
+Units.Init(map, stores, gameState)
+PlayerManager.Init(gameState, function()
+	local phase = gameState:GetAttribute("Phase")
+	return phase == "Intermission" or phase == "Waiting"
+end)
+
+local function now(): number
+	return workspace:GetServerTimeNow()
+end
+
+local function setPhase(phase: string, duration: number?)
+	gameState:SetAttribute("Phase", phase)
+	gameState:SetAttribute("PhaseEnd", if duration then now() + duration else 0)
+end
+
+local storesDestroyed = false
+Units.OnStoresDestroyed = function()
+	storesDestroyed = true
+end
+
+Units.OnKill = function(killer, unit)
+	if unit.Team == "Red" and killer then
+		PlayerManager.AddKill(killer, unit.Def.Bounty)
+	elseif unit.Team == "Blue" and unit.Owner then
+		PlayerManager.Sync(unit.Owner)
+	end
+end
+
+-- Ready votes let players skip the rest of the intermission.
+local ready: { [Player]: boolean } = {}
+local readyRemote = remotes:WaitForChild("Ready") :: RemoteEvent
+readyRemote.OnServerEvent:Connect(function(player)
+	if gameState:GetAttribute("Phase") == "Intermission" then
+		ready[player] = true
+		player:SetAttribute("Ready", true)
+	end
+end)
+
+local function allReady(): boolean
+	local list = Players:GetPlayers()
+	if #list == 0 then
+		return false
+	end
+	for _, p in list do
+		if not ready[p] then
+			return false
+		end
+	end
+	return true
+end
+
+local function clearReady()
+	table.clear(ready)
+	for _, p in Players:GetPlayers() do
+		p:SetAttribute("Ready", false)
+	end
+end
+
+local function anyoneAlive(): boolean
+	for _, p in Players:GetPlayers() do
+		if PlayerManager.IsAlive(p) then
+			return true
+		end
+	end
+	return false
+end
+
+local function respawnFallen()
+	for _, p in Players:GetPlayers() do
+		if not PlayerManager.IsAlive(p) then
+			task.spawn(PlayerManager.Spawn, p)
+		end
+	end
+end
+
+Players.PlayerAdded:Connect(function(player)
+	local phase = gameState:GetAttribute("Phase")
+	if phase ~= "GameOver" and phase ~= "Victory" then
+		task.wait(1)
+		PlayerManager.Spawn(player)
+		if phase == "Wave" then
+			FX.Announce("You join the fight mid-battle!", nil, player)
+		end
+	end
+end)
+Players.PlayerRemoving:Connect(function(player)
+	ready[player] = nil
+end)
+
+RunService.Heartbeat:Connect(function(dt)
+	Units.Step(math.min(dt, 0.1))
+end)
+
+---------------------------------------------------------------------------
+-- Wave spawning
+---------------------------------------------------------------------------
+
+type SpawnEntry = { At: number, Run: () -> () }
+
+local function edgePoint(spreadX: number): Vector3
+	local x = (math.random() * 2 - 1) * spreadX
+	return Vector3.new(x, 0, Config.Map.EnemySpawnZ + math.random() * 10)
+end
+
+local SOUTH = Vector3.new(0, 0, 1)
+
+local function buildSpawnQueue(wave: number): { SpawnEntry }
+	local def = Config.GetWave(wave)
+	local queue: { SpawnEntry } = {}
+
+	for i, formation in def.Formations do
+		table.insert(queue, {
+			At = (i - 1) * 9,
+			Run = function()
+				local lanes = { 0, -60, 60, -110, 110 }
+				local x = lanes[((i - 1) % #lanes) + 1] + math.random(-8, 8)
+				Units.SpawnFormation(formation, Vector3.new(x, 0, Config.Map.EnemySpawnZ), SOUTH)
+			end,
+		})
+	end
+
+	local function sprinkle(kind: string, count: number, startAt: number, interval: number, spreadX: number)
+		for i = 1, count do
+			table.insert(queue, {
+				At = startAt + (i - 1) * interval + math.random() * 2,
+				Run = function()
+					Units.Spawn(kind, edgePoint(spreadX), SOUTH)
+				end,
+			})
+		end
+	end
+
+	sprinkle("LightInfantry", def.LightInfantry, 4, 3, 140)
+	sprinkle("Grenadier", def.Grenadier, 12, 6, 80)
+	sprinkle("Dragoon", def.Dragoon, 20, 7, 120)
+
+	local gunSpots = { -45, 45, -95, 95 }
+	for i = 1, def.Cannon do
+		table.insert(queue, {
+			At = 2 + i,
+			Run = function()
+				local x = gunSpots[((i - 1) % #gunSpots) + 1]
+				Units.Spawn("Cannon", Vector3.new(x, 0, Config.Map.NorthEdge + 14), SOUTH)
+			end,
+		})
+	end
+
+	table.sort(queue, function(a, b)
+		return a.At < b.At
+	end)
+	return queue
+end
+
+---------------------------------------------------------------------------
+-- Round flow
+---------------------------------------------------------------------------
+
+local function waitForPlayers()
+	while #Players:GetPlayers() == 0 do
+		task.wait(1)
+	end
+end
+
+local function resetGame()
+	Units.Clear()
+	PlayerManager.ResetAll()
+	storesDestroyed = false
+	gameState:SetAttribute("StoresHealth", Config.Stores.MaxHealth)
+	gameState:SetAttribute("StoresMax", Config.Stores.MaxHealth)
+	gameState:SetAttribute("Wave", 0)
+	gameState:SetAttribute("EnemiesLeft", 0)
+	gameState:SetAttribute("WaveName", "")
+end
+
+local function intermission(duration: number)
+	clearReady()
+	setPhase("Intermission", duration)
+	respawnFallen()
+	PlayerManager.HealAll()
+	local deadline = now() + duration
+	while now() < deadline do
+		if allReady() then
+			break
+		end
+		task.wait(0.25)
+	end
+	clearReady()
+end
+
+-- Returns "Won" when every redcoat is dead, or "Lost".
+local function runWave(wave: number): string
+	local def = Config.GetWave(wave)
+	gameState:SetAttribute("Wave", wave)
+	gameState:SetAttribute("WaveName", def.Name or "")
+	setPhase("Wave")
+	FX.Announce(("Wave %d%s"):format(wave, if def.Name then " - " .. def.Name else ""), Color3.fromRGB(255, 90, 80))
+
+	local queue = buildSpawnQueue(wave)
+	local start = now()
+	local index = 1
+	while true do
+		local elapsed = now() - start
+		while index <= #queue and queue[index].At <= elapsed do
+			queue[index].Run()
+			index += 1
+		end
+
+		local remaining = Units.Count("Red") + (#queue - index + 1)
+		gameState:SetAttribute("EnemiesLeft", remaining)
+
+		if storesDestroyed then
+			return "Lost"
+		end
+		if #Players:GetPlayers() > 0 and not anyoneAlive() then
+			return "Lost"
+		end
+		if remaining == 0 then
+			return "Won"
+		end
+		task.wait(0.2)
+	end
+end
+
+while true do
+	resetGame()
+	setPhase("Waiting")
+	waitForPlayers()
+	respawnFallen()
+
+	local outcome = "Won"
+	for wave = 1, Config.Rounds.FinalWave do
+		intermission(if wave == 1 then Config.Rounds.FirstIntermission else Config.Rounds.IntermissionTime)
+		outcome = runWave(wave)
+		if outcome == "Lost" then
+			break
+		end
+		for _, p in Players:GetPlayers() do
+			PlayerManager.AddMoney(p, Config.Rounds.WaveClearBonus + wave * 10)
+		end
+		if wave < Config.Rounds.FinalWave then
+			FX.Announce(("Wave %d repulsed! +$%d"):format(wave, Config.Rounds.WaveClearBonus + wave * 10), Color3.fromRGB(120, 200, 255))
+		end
+	end
+
+	if outcome == "Won" then
+		setPhase("Victory", Config.Rounds.GameOverTime)
+		FX.Announce("VICTORY! The Regulars retreat to Boston!", Color3.fromRGB(120, 200, 255))
+	else
+		setPhase("GameOver", Config.Rounds.GameOverTime)
+		local reason = if storesDestroyed then "The powder stores have fallen!" else "The militia has been routed!"
+		FX.Announce(("%s Survived to wave %d."):format(reason, gameState:GetAttribute("Wave")), Color3.fromRGB(255, 90, 80))
+	end
+	task.wait(Config.Rounds.GameOverTime)
+	Units.Clear()
+	for _, p in Players:GetPlayers() do
+		if p.Character then
+			p.Character:Destroy()
+			p.Character = nil
+		end
+	end
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000007"><Properties><string name="Name">MapBuilder</string><ProtectedString name="Source"><![CDATA[-- Builds the battlefield procedurally: fields, the road, stone walls, trees,
+-- the village and the powder stores the redcoats are marching to seize.
+
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+
+local MapBuilder = {}
+
+local COLORS = {
+	Grass = Color3.fromRGB(96, 128, 56),
+	Field = Color3.fromRGB(130, 140, 70),
+	Road = Color3.fromRGB(140, 115, 80),
+	Stone = Color3.fromRGB(125, 122, 118),
+	Wood = Color3.fromRGB(120, 85, 55),
+	Clapboard = Color3.fromRGB(205, 195, 175),
+	RedBarn = Color3.fromRGB(140, 45, 35),
+	Roof = Color3.fromRGB(70, 60, 55),
+	Trunk = Color3.fromRGB(90, 65, 40),
+	Leaves = Color3.fromRGB(55, 95, 40),
+}
+
+local mapFolder: Folder
+local coverFolder: Folder
+local decorFolder: Folder
+
+-- Cover blocks musket balls and movement. Decor does neither for shots.
+local function part(props: { [string]: any }, parent: Instance, isCover: boolean): Part
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Material = Enum.Material.SmoothPlastic
+	for k, v in props do
+		(p :: any)[k] = v
+	end
+	if not isCover then
+		p.CanQuery = false
+	end
+	p.Parent = parent
+	return p
+end
+
+local function wedge(props: { [string]: any }, parent: Instance): WedgePart
+	local w = Instance.new("WedgePart")
+	w.Anchored = true
+	w.Material = Enum.Material.SmoothPlastic
+	for k, v in props do
+		(w :: any)[k] = v
+	end
+	w.Parent = parent
+	return w
+end
+
+local function stoneWall(from: Vector3, to: Vector3)
+	local mid = (from + to) / 2
+	local length = (to - from).Magnitude
+	part({
+		Name = "StoneWall",
+		Size = Vector3.new(2.5, 4, length),
+		CFrame = CFrame.lookAt(Vector3.new(mid.X, 2, mid.Z), Vector3.new(to.X, 2, to.Z)),
+		Color = COLORS.Stone,
+		Material = Enum.Material.Slate,
+	}, coverFolder, true)
+end
+
+local function rail(from: Vector3, to: Vector3)
+	-- Low split-rail fence: purely decorative, shots pass over it.
+	local mid = (from + to) / 2
+	local length = (to - from).Magnitude
+	local cf = CFrame.lookAt(Vector3.new(mid.X, 0, mid.Z), Vector3.new(to.X, 0, to.Z))
+	for _, h in { 0.9, 1.9 } do
+		part({
+			Name = "Rail",
+			Size = Vector3.new(0.3, 0.3, length),
+			CFrame = cf + Vector3.new(0, h, 0),
+			Color = COLORS.Wood,
+			Material = Enum.Material.Wood,
+		}, decorFolder, false)
+	end
+end
+
+local function tree(pos: Vector3, scale: number)
+	local trunk = part({
+		Name = "Trunk",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(10 * scale, 2.2 * scale, 2.2 * scale),
+		CFrame = CFrame.new(pos + Vector3.new(0, 5 * scale, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = COLORS.Trunk,
+		Material = Enum.Material.Wood,
+	}, coverFolder, true)
+	trunk.Name = "Tree"
+	local leaves = part({
+		Name = "Leaves",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.one * 11 * scale,
+		Position = pos + Vector3.new(0, 11 * scale, 0),
+		Color = COLORS.Leaves,
+		Material = Enum.Material.Grass,
+		CanCollide = false,
+		Transparency = 0.15,
+	}, decorFolder, false)
+	leaves.CastShadow = true
+end
+
+local function rock(pos: Vector3, size: Vector3)
+	part({
+		Name = "Rock",
+		Size = size,
+		CFrame = CFrame.new(pos + Vector3.new(0, size.Y / 2 - 0.3, 0))
+			* CFrame.Angles(0, math.random() * math.pi, math.rad(math.random(-8, 8))),
+		Color = COLORS.Stone,
+		Material = Enum.Material.Rock,
+	}, coverFolder, true)
+end
+
+local function house(pos: Vector3, yaw: number, size: Vector3, wallColor: Color3)
+	local model = Instance.new("Model")
+	model.Name = "House"
+	local base = CFrame.new(pos) * CFrame.Angles(0, math.rad(yaw), 0)
+	part({
+		Name = "Walls",
+		Size = size,
+		CFrame = base * CFrame.new(0, size.Y / 2, 0),
+		Color = wallColor,
+		Material = Enum.Material.WoodPlanks,
+	}, model, true)
+	local roofHeight = size.X * 0.45
+	-- Two wedges make a gable roof running along Z.
+	wedge({
+		Name = "RoofL",
+		Size = Vector3.new(size.Z + 1, roofHeight, size.X / 2 + 0.5),
+		CFrame = base * CFrame.new(-size.X / 4 - 0.25, size.Y + roofHeight / 2, 0) * CFrame.Angles(0, math.rad(90), 0),
+		Color = COLORS.Roof,
+		Material = Enum.Material.Slate,
+	}, model)
+	wedge({
+		Name = "RoofR",
+		Size = Vector3.new(size.Z + 1, roofHeight, size.X / 2 + 0.5),
+		CFrame = base * CFrame.new(size.X / 4 + 0.25, size.Y + roofHeight / 2, 0) * CFrame.Angles(0, math.rad(-90), 0),
+		Color = COLORS.Roof,
+		Material = Enum.Material.Slate,
+	}, model)
+	part({
+		Name = "Chimney",
+		Size = Vector3.new(2, roofHeight + 3, 2),
+		CFrame = base * CFrame.new(0, size.Y + (roofHeight + 3) / 2, size.Z / 2 - 2),
+		Color = COLORS.Stone,
+		Material = Enum.Material.Brick,
+	}, model, false)
+	for _, side in { -1, 1 } do
+		part({
+			Name = "Window",
+			Size = Vector3.new(0.2, 2.5, 2.5),
+			CFrame = base * CFrame.new(side * (size.X / 2 + 0.05), size.Y * 0.55, 0),
+			Color = Color3.fromRGB(40, 50, 60),
+			Material = Enum.Material.Glass,
+		}, model, false)
+	end
+	for _, p in model:GetChildren() do
+		(p :: BasePart).CanQuery = p.Name == "Walls"
+	end
+	model.Parent = coverFolder
+end
+
+local function church(pos: Vector3)
+	house(pos, 0, Vector3.new(18, 12, 26), Color3.fromRGB(235, 232, 225))
+	local steepleBase = CFrame.new(pos + Vector3.new(0, 0, -15))
+	part({
+		Name = "Tower",
+		Size = Vector3.new(7, 22, 7),
+		CFrame = steepleBase * CFrame.new(0, 11, 0),
+		Color = Color3.fromRGB(235, 232, 225),
+		Material = Enum.Material.WoodPlanks,
+	}, coverFolder, true)
+	part({
+		Name = "Belfry",
+		Size = Vector3.new(5, 6, 5),
+		CFrame = steepleBase * CFrame.new(0, 25, 0),
+		Color = Color3.fromRGB(235, 232, 225),
+		Material = Enum.Material.WoodPlanks,
+	}, decorFolder, false)
+	for i, w in { 4, 2.6, 1.2 } do
+		part({
+			Name = "Spire",
+			Size = Vector3.new(w, 3.5, w),
+			CFrame = steepleBase * CFrame.new(0, 28 + i * 3.5 - 1.75, 0),
+			Color = COLORS.Roof,
+			Material = Enum.Material.Slate,
+		}, decorFolder, false)
+	end
+end
+
+local function buildStores(): Model
+	local pos = Config.Map.StoresPosition
+	local model = Instance.new("Model")
+	model.Name = "PowderStores"
+	local building = part({
+		Name = "Magazine",
+		Size = Vector3.new(16, 9, 12),
+		CFrame = CFrame.new(pos + Vector3.new(0, 4.5, 0)),
+		Color = Color3.fromRGB(130, 110, 90),
+		Material = Enum.Material.Brick,
+	}, model, true)
+	wedge({
+		Name = "RoofL",
+		Size = Vector3.new(13, 4, 8.5),
+		CFrame = CFrame.new(pos + Vector3.new(-4.25, 11, 0)) * CFrame.Angles(0, math.rad(90), 0),
+		Color = COLORS.Roof,
+	}, model)
+	wedge({
+		Name = "RoofR",
+		Size = Vector3.new(13, 4, 8.5),
+		CFrame = CFrame.new(pos + Vector3.new(4.25, 11, 0)) * CFrame.Angles(0, math.rad(-90), 0),
+		Color = COLORS.Roof,
+	}, model)
+	-- Powder kegs out front.
+	for i = -2, 2 do
+		local keg = part({
+			Name = "Keg",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(2.4, 2.2, 2.2),
+			CFrame = CFrame.new(pos + Vector3.new(i * 2.6, 1.1, -8)) * CFrame.Angles(math.rad(90), 0, 0),
+			Color = Color3.fromRGB(100, 70, 40),
+			Material = Enum.Material.Wood,
+		}, model, false)
+		keg.CanCollide = true
+	end
+	-- Liberty flag.
+	part({
+		Name = "Pole",
+		Size = Vector3.new(0.5, 26, 0.5),
+		CFrame = CFrame.new(pos + Vector3.new(10, 13, -6)),
+		Color = Color3.fromRGB(230, 230, 230),
+	}, model, false)
+	part({
+		Name = "Flag",
+		Size = Vector3.new(7, 4, 0.2),
+		CFrame = CFrame.new(pos + Vector3.new(13.75, 23.5, -6)),
+		Color = Color3.fromRGB(30, 60, 140),
+		Material = Enum.Material.Fabric,
+	}, model, false)
+
+	model.PrimaryPart = building
+	model:SetAttribute("IsStores", true)
+	model.Parent = mapFolder
+	return model
+end
+
+function MapBuilder.Build(): (Folder, Model)
+	local existing = workspace:FindFirstChild("Map")
+	if existing then
+		existing:Destroy()
+	end
+	local oldBaseplate = workspace:FindFirstChild("Baseplate")
+	if oldBaseplate then
+		oldBaseplate:Destroy()
+	end
+
+	math.randomseed(1775) -- same map every time
+
+	mapFolder = Instance.new("Folder")
+	mapFolder.Name = "Map"
+	coverFolder = Instance.new("Folder")
+	coverFolder.Name = "Cover"
+	coverFolder.Parent = mapFolder
+	decorFolder = Instance.new("Folder")
+	decorFolder.Name = "Decor"
+	decorFolder.Parent = mapFolder
+
+	local m = Config.Map
+	local width = m.HalfWidth * 2 + 120
+	local depth = (m.SouthEdge - m.NorthEdge) + 120
+	local centerZ = (m.SouthEdge + m.NorthEdge) / 2
+
+	local ground = part({
+		Name = "Ground",
+		Size = Vector3.new(width, 2, depth),
+		CFrame = CFrame.new(0, -1, centerZ),
+		Color = COLORS.Grass,
+		Material = Enum.Material.Grass,
+	}, mapFolder, false)
+	ground.CanQuery = true -- used for mouse/grenade placement only; shots are horizontal
+
+	-- Fields and road.
+	for _, f in { { -80, -120, 90, 70 }, { 85, -40, 80, 90 }, { -90, 40, 70, 60 } } do
+		part({
+			Name = "Field",
+			Size = Vector3.new(f[3], 0.2, f[4]),
+			CFrame = CFrame.new(f[1], 0.05, f[2]),
+			Color = COLORS.Field,
+			Material = Enum.Material.Ground,
+		}, decorFolder, false)
+	end
+	part({
+		Name = "Road",
+		Size = Vector3.new(14, 0.2, depth),
+		CFrame = CFrame.new(0, 0.1, centerZ),
+		Color = COLORS.Road,
+		Material = Enum.Material.Ground,
+	}, decorFolder, false)
+	part({
+		Name = "VillageGreen",
+		Size = Vector3.new(70, 0.2, 50),
+		CFrame = CFrame.new(0, 0.12, 125),
+		Color = Color3.fromRGB(110, 145, 65),
+		Material = Enum.Material.Grass,
+	}, decorFolder, false)
+
+	-- Boundary walls keep everyone on the battlefield.
+	local hw = m.HalfWidth
+	for _, b in {
+		{ Vector3.new(-hw - 2, 10, centerZ), Vector3.new(4, 20, depth) },
+		{ Vector3.new(hw + 2, 10, centerZ), Vector3.new(4, 20, depth) },
+		{ Vector3.new(0, 10, m.SouthEdge + 2), Vector3.new(width, 20, 4) },
+		{ Vector3.new(0, 10, m.NorthEdge - 2), Vector3.new(width, 20, 4) },
+	} do
+		part({
+			Name = "Boundary",
+			Size = b[2],
+			Position = b[1],
+			Transparency = 1,
+			CanQuery = false,
+		}, mapFolder, false)
+	end
+
+	-- New England stone walls give cover across the battlefield.
+	stoneWall(Vector3.new(-60, 0, -60), Vector3.new(-25, 0, -60))
+	stoneWall(Vector3.new(25, 0, -60), Vector3.new(60, 0, -60))
+	stoneWall(Vector3.new(-120, 0, -10), Vector3.new(-70, 0, 5))
+	stoneWall(Vector3.new(70, 0, 10), Vector3.new(125, 0, 0))
+	stoneWall(Vector3.new(-40, 0, 40), Vector3.new(-14, 0, 40))
+	stoneWall(Vector3.new(14, 0, 40), Vector3.new(40, 0, 40))
+	stoneWall(Vector3.new(-100, 0, 80), Vector3.new(-60, 0, 75))
+	stoneWall(Vector3.new(60, 0, 75), Vector3.new(100, 0, 80))
+
+	-- Split rail fences along the road.
+	for z = -200, 60, 40 do
+		rail(Vector3.new(-9, 0, z), Vector3.new(-9, 0, z + 30))
+		rail(Vector3.new(9, 0, z), Vector3.new(9, 0, z + 30))
+	end
+
+	-- Woods on the flanks.
+	for _ = 1, 45 do
+		local side = if math.random() < 0.5 then -1 else 1
+		local x = side * math.random(100, hw - 6)
+		local z = math.random(m.NorthEdge + 40, 90)
+		tree(Vector3.new(x, 0, z), 0.8 + math.random() * 0.5)
+	end
+	for _ = 1, 14 do
+		local x = math.random(-90, 90)
+		local z = math.random(-170, 70)
+		if math.abs(x) > 14 then
+			tree(Vector3.new(x, 0, z), 0.7 + math.random() * 0.4)
+		end
+	end
+	for _ = 1, 18 do
+		local x = math.random(-hw + 10, hw - 10)
+		local z = math.random(-180, 80)
+		if math.abs(x) > 12 then
+			rock(Vector3.new(x, 0, z), Vector3.new(math.random(3, 6), math.random(3, 5), math.random(3, 6)))
+		end
+	end
+
+	-- The village around the green.
+	house(Vector3.new(-45, 0, 115), 90, Vector3.new(14, 10, 20), COLORS.Clapboard)
+	house(Vector3.new(45, 0, 115), -90, Vector3.new(14, 10, 20), COLORS.Clapboard)
+	house(Vector3.new(-50, 0, 150), 0, Vector3.new(14, 9, 18), COLORS.RedBarn)
+	house(Vector3.new(52, 0, 152), 0, Vector3.new(16, 10, 18), COLORS.Clapboard)
+	house(Vector3.new(-100, 0, 130), 15, Vector3.new(14, 10, 22), COLORS.RedBarn)
+	house(Vector3.new(105, 0, 125), -10, Vector3.new(14, 10, 20), COLORS.Clapboard)
+	church(Vector3.new(-28, 0, 70))
+
+	-- A small bridge-like crossing point: the "North Bridge" landmark.
+	part({
+		Name = "Creek",
+		Size = Vector3.new(width, 0.25, 12),
+		CFrame = CFrame.new(0, 0.08, -95),
+		Color = Color3.fromRGB(60, 100, 140),
+		Material = Enum.Material.Glass,
+		Transparency = 0.2,
+	}, decorFolder, false)
+	part({
+		Name = "Bridge",
+		Size = Vector3.new(16, 0.6, 16),
+		CFrame = CFrame.new(0, 0.3, -95),
+		Color = COLORS.Wood,
+		Material = Enum.Material.WoodPlanks,
+	}, decorFolder, false)
+
+	local stores = buildStores()
+
+	mapFolder.Parent = workspace
+
+	-- Warm late-afternoon light.
+	Lighting.ClockTime = 16.5
+	Lighting.Brightness = 2.2
+	Lighting.OutdoorAmbient = Color3.fromRGB(140, 130, 115)
+	Lighting.GlobalShadows = true
+
+	math.randomseed(os.clock() * 1000)
+
+	return mapFolder, stores
+end
+
+return MapBuilder
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000008"><Properties><string name="Name">PlayerManager</string><ProtectedString name="Source"><![CDATA[-- Per-player state: money, weapons, upgrades, firing, reloading and the shop.
+-- State the client needs to draw the HUD is mirrored onto player attributes.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local FX = require(script.Parent:WaitForChild("FX"))
+local Units = require(script.Parent:WaitForChild("Units"))
+
+local PlayerManager = {}
+
+type Data = {
+	Money: number,
+	Kills: number,
+	Owned: { [string]: boolean },
+	Equipped: string,
+	Ammo: { [string]: number },
+	ReloadToken: number,
+	Reloading: boolean,
+	Spawning: boolean,
+	LastFire: number,
+	LastMelee: number,
+	Upgrades: { [string]: number },
+}
+
+local data: { [Player]: Data } = {}
+local gameState: Instance
+local canShop: () -> boolean = function()
+	return false
+end
+
+local function now(): number
+	return workspace:GetServerTimeNow()
+end
+
+local function getRoot(player: Player): (BasePart?, Humanoid?)
+	local char = player.Character
+	if not char then
+		return nil, nil
+	end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not hum or not root or hum.Health <= 0 then
+		return nil, nil
+	end
+	return root, hum
+end
+
+local function upgradeValue(d: Data, id: string): number
+	return (d.Upgrades[id] or 0) * Config.Upgrades[id].PerLevel
+end
+
+local function reloadTime(d: Data, weapon: Config.WeaponDef): number
+	return weapon.ReloadTime * math.max(0.3, 1 - upgradeValue(d, "Reload"))
+end
+
+local function walkSpeed(d: Data): number
+	return Config.Player.WalkSpeed + upgradeValue(d, "Speed")
+end
+
+local function sync(player: Player)
+	local d = data[player]
+	if not d then
+		return
+	end
+	local weapon = Config.Weapons[d.Equipped]
+	player:SetAttribute("Money", d.Money)
+	player:SetAttribute("Weapon", d.Equipped)
+	player:SetAttribute("Ammo", d.Ammo[d.Equipped] or 0)
+	player:SetAttribute("Capacity", weapon.Capacity)
+	player:SetAttribute("Reloading", d.Reloading)
+	for id in Config.Weapons do
+		player:SetAttribute("Owns_" .. id, d.Owned[id] == true)
+	end
+	for id in Config.Upgrades do
+		player:SetAttribute("Up_" .. id, d.Upgrades[id] or 0)
+	end
+	player:SetAttribute("Allies", Units.CountOwnedBy(player))
+
+	local stats = player:FindFirstChild("leaderstats")
+	if stats then
+		local kills = stats:FindFirstChild("Kills") :: IntValue
+		local money = stats:FindFirstChild("Dollars") :: IntValue
+		kills.Value = d.Kills
+		money.Value = d.Money
+	end
+end
+PlayerManager.Sync = sync
+
+local function setSpeed(player: Player)
+	local d = data[player]
+	local _, hum = getRoot(player)
+	if d and hum then
+		hum.WalkSpeed = if d.Reloading then Config.Player.ReloadWalkSpeed + upgradeValue(d, "Speed") else walkSpeed(d)
+	end
+end
+
+local function cancelReload(player: Player)
+	local d = data[player]
+	if d and d.Reloading then
+		d.ReloadToken += 1
+		d.Reloading = false
+		player:SetAttribute("ReloadEnd", 0)
+		setSpeed(player)
+	end
+end
+
+local function startReload(player: Player)
+	local d = data[player]
+	if not d or d.Reloading then
+		return
+	end
+	local weapon = Config.Weapons[d.Equipped]
+	if d.Ammo[d.Equipped] >= weapon.Capacity then
+		return
+	end
+	if not getRoot(player) then
+		return
+	end
+	d.Reloading = true
+	d.ReloadToken += 1
+	local token = d.ReloadToken
+	local duration = reloadTime(d, weapon)
+	player:SetAttribute("ReloadEnd", now() + duration)
+	player:SetAttribute("ReloadDuration", duration)
+	setSpeed(player)
+	sync(player)
+	task.delay(duration, function()
+		if data[player] == d and d.ReloadToken == token and d.Reloading then
+			d.Reloading = false
+			d.Ammo[d.Equipped] = weapon.Capacity
+			player:SetAttribute("ReloadEnd", 0)
+			setSpeed(player)
+			sync(player)
+		end
+	end)
+end
+
+local function fire(player: Player, aimPoint: Vector3)
+	local d = data[player]
+	if not d or typeof(aimPoint) ~= "Vector3" then
+		return
+	end
+	local root, hum = getRoot(player)
+	if not root or not hum then
+		return
+	end
+	local weapon = Config.Weapons[d.Equipped]
+	local t = now()
+	if d.Reloading or t - d.LastFire < weapon.FireCooldown then
+		return
+	end
+	if (d.Ammo[d.Equipped] or 0) <= 0 then
+		startReload(player)
+		return
+	end
+	d.LastFire = t
+	d.Ammo[d.Equipped] -= 1
+
+	local forward = Vector3.new(aimPoint.X - root.Position.X, 0, aimPoint.Z - root.Position.Z)
+	if forward.Magnitude < 0.5 then
+		forward = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+	end
+	forward = forward.Unit
+
+	local spread = weapon.Spread * math.max(0.1, 1 - upgradeValue(d, "Accuracy"))
+	if hum.MoveDirection.Magnitude > 0.1 then
+		spread *= 1.6 -- firing on the move is less accurate
+	end
+	local damage = weapon.Damage * (1 + upgradeValue(d, "Damage"))
+	local origin = Vector3.new(root.Position.X, Config.ShotHeight, root.Position.Z) + forward * 1.5
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local exclude: { Instance } = { workspace:FindFirstChild("Militia") :: Instance, workspace:FindFirstChild("Effects") :: Instance }
+	for _, p in Players:GetPlayers() do
+		if p.Character then
+			table.insert(exclude, p.Character)
+		end
+	end
+	params.FilterDescendantsInstances = exclude
+
+	local ends = {}
+	-- Pellets that hit the same soldier stack their damage.
+	local pending: { [Instance]: number } = {}
+	local hitAt: { [Instance]: Vector3 } = {}
+	for _ = 1, weapon.Pellets do
+		local angle = (math.random() * 2 - 1) * spread
+		local dir = CFrame.Angles(0, math.rad(angle), 0):VectorToWorldSpace(forward)
+		local result = workspace:Raycast(origin, dir * weapon.Range, params)
+		if result then
+			table.insert(ends, result.Position)
+			pending[result.Instance] = (pending[result.Instance] or 0) + damage
+			hitAt[result.Instance] = result.Position
+		else
+			table.insert(ends, origin + dir * weapon.Range)
+		end
+	end
+	for inst, dmg in pending do
+		local flesh = Units.ApplyHit(inst, dmg, "Blue", player)
+		FX.Hit(hitAt[inst], flesh)
+	end
+	FX.Shot(origin, ends, "Blue")
+
+	sync(player)
+	if d.Ammo[d.Equipped] <= 0 then
+		task.delay(0.15, startReload, player)
+	end
+end
+
+local function melee(player: Player)
+	local d = data[player]
+	local root = getRoot(player)
+	if not d or not root then
+		return
+	end
+	local t = now()
+	if t - d.LastMelee < Config.Melee.Cooldown then
+		return
+	end
+	d.LastMelee = t
+	local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
+	local cosLimit = math.cos(math.rad(Config.Melee.ArcDegrees / 2))
+	FX.Slash(root.Position, look)
+	for _, unit in table.clone(Units.All()) do
+		if unit.Team == "Red" and not unit.Dead then
+			local delta = unit.Root.Position - root.Position
+			delta = Vector3.new(delta.X, 0, delta.Z)
+			local reach = Config.Melee.Range + unit.Root.Size.Z / 2
+			if delta.Magnitude <= reach and (delta.Magnitude < 1 or delta.Unit:Dot(look) >= cosLimit) then
+				Units.Damage(unit, Config.Melee.Damage * (1 + upgradeValue(d, "Damage")), player)
+				FX.Hit(unit.Root.Position, true)
+			end
+		end
+	end
+end
+
+local function equip(player: Player, weaponId: string)
+	local d = data[player]
+	if not d or typeof(weaponId) ~= "string" or not d.Owned[weaponId] or d.Equipped == weaponId then
+		return
+	end
+	cancelReload(player)
+	d.Equipped = weaponId
+	sync(player)
+	PlayerManager.DressCharacter(player)
+	if d.Ammo[weaponId] <= 0 then
+		startReload(player)
+	end
+end
+
+local function purchase(player: Player, kind: string, id: string?): (boolean, string)
+	local d = data[player]
+	if not d then
+		return false, "No data"
+	end
+	if not canShop() then
+		return false, "The shop is only open between waves."
+	end
+
+	if kind == "Weapon" and typeof(id) == "string" then
+		local weapon = Config.Weapons[id]
+		if not weapon then
+			return false, "Unknown weapon"
+		end
+		if d.Owned[id] then
+			equip(player, id)
+			return true, "Equipped " .. weapon.Name
+		end
+		if d.Money < weapon.Price then
+			return false, "Not enough money"
+		end
+		d.Money -= weapon.Price
+		d.Owned[id] = true
+		d.Ammo[id] = weapon.Capacity
+		equip(player, id)
+		sync(player)
+		return true, "Bought " .. weapon.Name
+	elseif kind == "Upgrade" and typeof(id) == "string" then
+		local up = Config.Upgrades[id]
+		if not up then
+			return false, "Unknown upgrade"
+		end
+		local level = d.Upgrades[id] or 0
+		if level >= up.MaxLevel then
+			return false, "Already maxed"
+		end
+		local cost = up.BaseCost * (level + 1)
+		if d.Money < cost then
+			return false, "Not enough money"
+		end
+		d.Money -= cost
+		d.Upgrades[id] = level + 1
+		PlayerManager.ApplyStats(player, true)
+		sync(player)
+		return true, up.Name .. " level " .. (level + 1)
+	elseif kind == "Ally" then
+		if Units.CountOwnedBy(player) >= Config.Allies.MaxPerPlayer then
+			return false, "You already lead " .. Config.Allies.MaxPerPlayer .. " minutemen"
+		end
+		if d.Money < Config.Allies.HireCost then
+			return false, "Not enough money"
+		end
+		d.Money -= Config.Allies.HireCost
+		local root = getRoot(player)
+		local base = if root then root.Position else Config.Map.PlayerSpawn
+		local offset = Vector3.new(math.random(-6, 6), 0, math.random(3, 8))
+		Units.Spawn("Militia", base + offset, Vector3.new(0, 0, -1), player)
+		sync(player)
+		return true, "A minuteman joins you!"
+	elseif kind == "Repair" then
+		local hp = gameState:GetAttribute("StoresHealth")
+		local max = gameState:GetAttribute("StoresMax")
+		if hp >= max then
+			return false, "The stores are undamaged"
+		end
+		if d.Money < Config.Stores.RepairCost then
+			return false, "Not enough money"
+		end
+		d.Money -= Config.Stores.RepairCost
+		gameState:SetAttribute("StoresHealth", math.min(max, hp + Config.Stores.RepairAmount))
+		sync(player)
+		return true, "Stores repaired"
+	end
+	return false, "Unknown purchase"
+end
+
+-- Give the avatar a tricorne and a musket so they look the part.
+function PlayerManager.DressCharacter(player: Player)
+	local char = player.Character
+	local d = data[player]
+	if not char or not d then
+		return
+	end
+	for _, name in { "PropWeapon", "PropHat" } do
+		local old = char:FindFirstChild(name)
+		if old then
+			old:Destroy()
+		end
+	end
+	local hand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
+	local head = char:FindFirstChild("Head")
+	if hand and hand:IsA("BasePart") then
+		local length = if d.Equipped == "Pistols" then 1.4 elseif d.Equipped == "Blunderbuss" then 3.2 elseif d.Equipped == "LongRifle" then 5.2 else 4.4
+		local weapon = Instance.new("Part")
+		weapon.Name = "PropWeapon"
+		weapon.Size = Vector3.new(0.25, 0.3, length)
+		weapon.Color = Color3.fromRGB(105, 70, 40)
+		weapon.Material = Enum.Material.Wood
+		weapon.CanCollide = false
+		weapon.CanQuery = false
+		weapon.CanTouch = false
+		weapon.Massless = true
+		weapon.CFrame = hand.CFrame * CFrame.new(0, -0.3, -length / 2 + 0.6)
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = hand
+		weld.Part1 = weapon
+		weld.Parent = weapon
+		weapon.Parent = char
+	end
+	if head and head:IsA("BasePart") then
+		local hat = Instance.new("Part")
+		hat.Name = "PropHat"
+		hat.Size = Vector3.new(1.9, 0.45, 1.9)
+		hat.Color = Color3.fromRGB(25, 25, 25)
+		hat.Material = Enum.Material.Fabric
+		hat.CanCollide = false
+		hat.CanQuery = false
+		hat.CanTouch = false
+		hat.Massless = true
+		hat.CFrame = head.CFrame * CFrame.new(0, head.Size.Y / 2 + 0.15, 0)
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = head
+		weld.Part1 = hat
+		weld.Parent = hat
+		hat.Parent = char
+	end
+end
+
+-- Apply max health / speed from upgrades. `keepHealth` preserves damage taken.
+function PlayerManager.ApplyStats(player: Player, keepHealth: boolean?)
+	local d = data[player]
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not d or not hum or hum.Health <= 0 then
+		return
+	end
+	local missing = hum.MaxHealth - hum.Health
+	hum.MaxHealth = Config.Player.MaxHealth + upgradeValue(d, "Health")
+	hum.Health = if keepHealth then math.max(1, hum.MaxHealth - missing) else hum.MaxHealth
+	setSpeed(player)
+end
+
+function PlayerManager.Spawn(player: Player)
+	local d = data[player]
+	if not d or not player.Parent or d.Spawning then
+		return
+	end
+	d.Spawning = true
+	local ok = pcall(player.LoadCharacter, player)
+	d.Spawning = false
+	local char = player.Character
+	if not ok or not char then
+		return
+	end
+	local hum = char:WaitForChild("Humanoid") :: Humanoid
+	local root = char:WaitForChild("HumanoidRootPart") :: BasePart
+	-- No passive regeneration: health only comes back between waves.
+	local regen = char:FindFirstChild("Health")
+	if regen then
+		regen:Destroy()
+	end
+	hum.AutoRotate = false
+	hum.JumpPower = 0
+	hum.JumpHeight = 0
+	local spawn = Config.Map.PlayerSpawn + Vector3.new(math.random(-12, 12), 0, math.random(-4, 4))
+	char:PivotTo(CFrame.lookAt(spawn, spawn + Vector3.new(0, 0, -1)))
+	root.AssemblyLinearVelocity = Vector3.zero
+
+	d.Reloading = false
+	d.ReloadToken += 1
+	for id, owned in d.Owned do
+		if owned then
+			d.Ammo[id] = Config.Weapons[id].Capacity
+		end
+	end
+	player:SetAttribute("ReloadEnd", 0)
+	PlayerManager.ApplyStats(player, false)
+	PlayerManager.DressCharacter(player)
+	sync(player)
+end
+
+function PlayerManager.IsAlive(player: Player): boolean
+	return getRoot(player) ~= nil
+end
+
+function PlayerManager.HealAll()
+	for player in data do
+		PlayerManager.ApplyStats(player, false)
+	end
+end
+
+function PlayerManager.AddMoney(player: Player, amount: number)
+	local d = data[player]
+	if d then
+		d.Money += amount
+		sync(player)
+	end
+end
+
+function PlayerManager.AddKill(player: Player, reward: number)
+	local d = data[player]
+	if d then
+		d.Kills += 1
+		d.Money += reward
+		sync(player)
+	end
+end
+
+function PlayerManager.Reset(player: Player)
+	local d: Data = {
+		Money = Config.Player.StartingMoney,
+		Kills = 0,
+		Owned = { Musket = true },
+		Equipped = "Musket",
+		Ammo = { Musket = Config.Weapons.Musket.Capacity },
+		ReloadToken = 0,
+		Reloading = false,
+		Spawning = false,
+		LastFire = 0,
+		LastMelee = 0,
+		Upgrades = {},
+	}
+	data[player] = d
+	sync(player)
+end
+
+function PlayerManager.ResetAll()
+	for player in data do
+		PlayerManager.Reset(player)
+	end
+end
+
+local function onPlayerAdded(player: Player)
+	local stats = Instance.new("Folder")
+	stats.Name = "leaderstats"
+	local kills = Instance.new("IntValue")
+	kills.Name = "Kills"
+	kills.Parent = stats
+	local money = Instance.new("IntValue")
+	money.Name = "Dollars"
+	money.Parent = stats
+	stats.Parent = player
+
+	PlayerManager.Reset(player)
+end
+
+function PlayerManager.Init(state: Instance, shopOpen: () -> boolean)
+	gameState = state
+	canShop = shopOpen
+
+	local remotes = ReplicatedStorage:WaitForChild("Remotes")
+	local fireRemote = remotes:WaitForChild("Fire") :: RemoteEvent
+	local reloadRemote = remotes:WaitForChild("Reload") :: RemoteEvent
+	local meleeRemote = remotes:WaitForChild("Melee") :: RemoteEvent
+	local equipRemote = remotes:WaitForChild("Equip") :: RemoteEvent
+	local purchaseRemote = remotes:WaitForChild("Purchase") :: RemoteFunction
+	fireRemote.OnServerEvent:Connect(fire)
+	reloadRemote.OnServerEvent:Connect(startReload)
+	meleeRemote.OnServerEvent:Connect(melee)
+	equipRemote.OnServerEvent:Connect(equip)
+	purchaseRemote.OnServerInvoke = purchase
+
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	for _, p in Players:GetPlayers() do
+		onPlayerAdded(p)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		data[player] = nil
+		Units.RemoveOwnedBy(player)
+	end)
+end
+
+return PlayerManager
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000009"><Properties><string name="Name">Units</string><ProtectedString name="Source"><![CDATA[-- Redcoats and hired militia: model construction, AI, and damage handling.
+--
+-- Units are anchored models moved by CFrame every frame. That keeps dozens of
+-- soldiers cheap and lets line infantry hold tidy formations. Each unit's
+-- invisible Root part is its hitbox; all visual parts are welded to it.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Debris = game:GetService("Debris")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local FX = require(script.Parent:WaitForChild("FX"))
+
+local Units = {}
+
+export type Target = {
+	Kind: string, -- "Player" | "Unit" | "Stores"
+	Position: Vector3,
+	Player: Player?,
+	Humanoid: Humanoid?,
+	Unit: any?,
+	Distance: number,
+}
+
+export type Unit = {
+	Kind: string,
+	Def: Config.UnitDef,
+	Team: string,
+	Model: Model,
+	Root: BasePart,
+	Health: number,
+	MaxHealth: number,
+	Dead: boolean,
+	Group: any?,
+	SlotOffset: Vector3?,
+	NextAttack: number,
+	Aiming: boolean,
+	AimEnd: number,
+	AimDir: Vector3,
+	AimPoint: Vector3,
+	AimTarget: Target?,
+	Owner: Player?,
+	ArmWelds: { Weld },
+	WeaponWeld: Weld?,
+	Poses: { [string]: { CFrame } },
+	Bar: Frame?,
+	BarGui: BillboardGui?,
+	Alert: TextLabel?,
+	Facing: Vector3,
+}
+
+local units: { Unit } = {}
+local byModel: { [Model]: Unit } = {}
+local groups: { any } = {}
+
+local redFolder: Folder
+local blueFolder: Folder
+local coverFolder: Instance
+local storesModel: Model
+local gameState: Instance
+
+local coverParams = RaycastParams.new()
+coverParams.FilterType = Enum.RaycastFilterType.Include
+
+Units.OnKill = nil :: ((killer: Player?, unit: Unit) -> ())?
+Units.OnStoresDestroyed = nil :: (() -> ())?
+
+-- Roundshot flies far enough to reach the village from the gun line.
+local CANNON_RANGE = 420
+
+local SKIN = Color3.fromRGB(234, 192, 160)
+local WHITE = Color3.fromRGB(235, 232, 220)
+local BLACK = Color3.fromRGB(25, 25, 25)
+local WOOD = Color3.fromRGB(105, 70, 40)
+local STEEL = Color3.fromRGB(120, 120, 125)
+
+---------------------------------------------------------------------------
+-- Helpers
+---------------------------------------------------------------------------
+
+local function now(): number
+	return workspace:GetServerTimeNow()
+end
+
+local function flat(v: Vector3): Vector3
+	return Vector3.new(v.X, 0, v.Z)
+end
+
+local function flatUnit(v: Vector3, fallback: Vector3): Vector3
+	local f = flat(v)
+	if f.Magnitude < 1e-3 then
+		return fallback
+	end
+	return f.Unit
+end
+
+local function rotateY(v: Vector3, degrees: number): Vector3
+	return CFrame.Angles(0, math.rad(degrees), 0):VectorToWorldSpace(v)
+end
+
+local function clampToMap(p: Vector3): Vector3
+	local m = Config.Map
+	return Vector3.new(
+		math.clamp(p.X, -m.HalfWidth + 3, m.HalfWidth - 3),
+		p.Y,
+		math.clamp(p.Z, m.NorthEdge + 3, m.SouthEdge - 3)
+	)
+end
+
+local function storesPosition(): Vector3
+	return Config.Map.StoresPosition
+end
+
+local function storesHealth(): number
+	return gameState:GetAttribute("StoresHealth") or 0
+end
+
+---------------------------------------------------------------------------
+-- Model construction
+---------------------------------------------------------------------------
+
+local function addPart(model: Model, root: BasePart, name: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material?, shape: Enum.PartType?): Part
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Size = size
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	if shape then
+		p.Shape = shape
+	end
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Massless = true
+	p.Anchored = false
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.CFrame = root.CFrame * offset
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = root
+	weld.Part1 = p
+	weld.Parent = p
+	p.Parent = model
+	return p
+end
+
+-- A part attached with a classic Weld so its pose can be changed (arms, musket).
+local function addPosable(model: Model, root: BasePart, name: string, size: Vector3, c0: CFrame, color: Color3, material: Enum.Material?): (Part, Weld)
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Size = size
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Massless = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.CFrame = root.CFrame * c0
+	local weld = Instance.new("Weld")
+	weld.Part0 = root
+	weld.Part1 = p
+	weld.C0 = c0
+	weld.Parent = p
+	p.Parent = model
+	return p, weld
+end
+
+local function addHat(model: Model, root: BasePart, hat: string, headY: number, def: Config.UnitDef)
+	if hat == "Tricorne" then
+		addPart(model, root, "Hat", Vector3.new(1.8, 0.35, 1.8), CFrame.new(0, headY + 0.65, 0), BLACK, Enum.Material.Fabric)
+		addPart(model, root, "HatCrown", Vector3.new(1.1, 0.5, 1.1), CFrame.new(0, headY + 0.9, 0), BLACK, Enum.Material.Fabric)
+		if def.Team == "Red" then
+			addPart(model, root, "HatTrim", Vector3.new(1.85, 0.12, 1.85), CFrame.new(0, headY + 0.55, 0), WHITE)
+		end
+	elseif hat == "Bearskin" then
+		addPart(model, root, "Bearskin", Vector3.new(1.3, 2.0, 1.3), CFrame.new(0, headY + 1.3, 0), BLACK, Enum.Material.Fabric)
+		addPart(model, root, "Plate", Vector3.new(0.9, 0.9, 0.1), CFrame.new(0, headY + 0.9, -0.66), Color3.fromRGB(200, 170, 60), Enum.Material.Metal)
+	elseif hat == "Helmet" then
+		addPart(model, root, "Helmet", Vector3.new(1.25, 0.8, 1.35), CFrame.new(0, headY + 0.7, 0), BLACK, Enum.Material.Metal)
+		addPart(model, root, "Plume", Vector3.new(0.35, 0.6, 1.2), CFrame.new(0, headY + 1.25, 0.1), def.CoatColor, Enum.Material.Fabric)
+	elseif hat == "Cap" then
+		addPart(model, root, "Cap", Vector3.new(1.2, 0.7, 1.2), CFrame.new(0, headY + 0.75, 0), BLACK, Enum.Material.Fabric)
+	end
+end
+
+local function makeHealthBar(root: BasePart, height: number): (BillboardGui, Frame, TextLabel)
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "Overhead"
+	gui.Size = UDim2.fromOffset(46, 34)
+	gui.StudsOffset = Vector3.new(0, height, 0)
+	gui.AlwaysOnTop = true
+	gui.MaxDistance = 300
+	gui.LightInfluence = 0
+
+	local back = Instance.new("Frame")
+	back.Name = "Back"
+	back.AnchorPoint = Vector2.new(0.5, 1)
+	back.Position = UDim2.new(0.5, 0, 1, 0)
+	back.Size = UDim2.new(1, 0, 0, 6)
+	back.BackgroundColor3 = Color3.fromRGB(30, 20, 20)
+	back.BorderSizePixel = 0
+	back.Visible = false
+	back.Parent = gui
+
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.BackgroundColor3 = Color3.fromRGB(220, 60, 50)
+	fill.BorderSizePixel = 0
+	fill.Parent = back
+
+	local alert = Instance.new("TextLabel")
+	alert.Name = "Alert"
+	alert.BackgroundTransparency = 1
+	alert.Size = UDim2.new(3, 0, 0, 24)
+	alert.Position = UDim2.new(-1, 0, 0, 0)
+	alert.Font = Enum.Font.GothamBlack
+	alert.TextColor3 = Color3.fromRGB(255, 220, 80)
+	alert.TextStrokeTransparency = 0.2
+	alert.TextScaled = true
+	alert.Text = ""
+	alert.Parent = gui
+
+	gui.Parent = root
+	return gui, fill, alert
+end
+
+local function buildSoldier(kind: string, def: Config.UnitDef, cf: CFrame): Unit
+	local s = def.Scale or 1
+	local model = Instance.new("Model")
+	model.Name = def.DisplayName
+
+	local root = Instance.new("Part")
+	root.Name = "Root"
+	root.Size = Vector3.new(2.2, 5, 1.4) * s
+	root.Transparency = 1
+	root.Anchored = true
+	root.CanCollide = true
+	root.CanQuery = true
+	root.CanTouch = false
+	root.CFrame = CFrame.new(cf.Position.X, 2.5 * s, cf.Position.Z) * cf.Rotation
+	root.Parent = model
+	model.PrimaryPart = root
+
+	local coat = def.CoatColor
+	local breeches = if def.Team == "Red" then WHITE else Color3.fromRGB(170, 150, 110)
+
+	-- Legs and boots.
+	for _, x in { -0.5, 0.5 } do
+		addPart(model, root, "Leg", Vector3.new(0.85, 1.6, 0.85) * s, CFrame.new(x * s, -1.0 * s, 0), breeches)
+		addPart(model, root, "Boot", Vector3.new(0.9, 0.9, 1.0) * s, CFrame.new(x * s, -2.05 * s, -0.05 * s), BLACK)
+	end
+	-- Body.
+	addPart(model, root, "Torso", Vector3.new(2, 2, 1) * s, CFrame.new(0, 0.8 * s, 0), coat, Enum.Material.Fabric)
+	addPart(model, root, "Tails", Vector3.new(2.05, 0.8, 1.05) * s, CFrame.new(0, -0.5 * s, 0.05 * s), coat, Enum.Material.Fabric)
+	local beltColor = if def.Team == "Red" then WHITE else Color3.fromRGB(190, 170, 130)
+	for _, a in { 38, -38 } do
+		addPart(model, root, "Crossbelt", Vector3.new(0.3, 2.5, 0.08) * s, CFrame.new(0, 0.8 * s, -0.53 * s) * CFrame.Angles(0, 0, math.rad(a)), beltColor)
+	end
+	-- Head.
+	local headY = 2.35 * s
+	addPart(model, root, "Head", Vector3.new(1.1, 1.1, 1.1) * s, CFrame.new(0, headY, 0), SKIN)
+	addHat(model, root, def.Hat, headY, def)
+
+	-- Arms and weapon are posable.
+	local poses = {
+		Idle = {
+			CFrame.new(-1.45 * s, 0.75 * s, 0),
+			CFrame.new(1.45 * s, 0.75 * s, 0),
+			CFrame.new(1.6 * s, 1.1 * s, -0.5 * s) * CFrame.Angles(math.rad(82), 0, 0),
+		},
+		Aim = {
+			CFrame.new(-0.9 * s, 1.35 * s, -1.1 * s) * CFrame.Angles(math.rad(90), 0, math.rad(-20)),
+			CFrame.new(0.9 * s, 1.35 * s, -0.9 * s) * CFrame.Angles(math.rad(90), 0, 0),
+			CFrame.new(0.55 * s, 1.55 * s, -1.9 * s),
+		},
+	}
+	local _, leftWeld = addPosable(model, root, "LeftArm", Vector3.new(0.75, 2, 0.75) * s, poses.Idle[1], coat, Enum.Material.Fabric)
+	local _, rightWeld = addPosable(model, root, "RightArm", Vector3.new(0.75, 2, 0.75) * s, poses.Idle[2], coat, Enum.Material.Fabric)
+
+	local weaponWeld: Weld? = nil
+	if def.Attack == "Musket" then
+		local musket, w = addPosable(model, root, "Musket", Vector3.new(0.28, 0.32, 4.6) * s, poses.Idle[3], WOOD, Enum.Material.Wood)
+		local barrel = Instance.new("Part")
+		barrel.Name = "Barrel"
+		barrel.Size = Vector3.new(0.18, 0.18, 2.2) * s
+		barrel.Color = STEEL
+		barrel.Material = Enum.Material.Metal
+		barrel.CanCollide = false
+		barrel.CanQuery = false
+		barrel.Massless = true
+		barrel.CFrame = musket.CFrame * CFrame.new(0, 0.2 * s, -1.6 * s)
+		local bw = Instance.new("WeldConstraint")
+		bw.Part0 = musket
+		bw.Part1 = barrel
+		bw.Parent = barrel
+		barrel.Parent = model
+		weaponWeld = w
+	elseif def.Attack == "Grenade" then
+		addPart(model, root, "GrenadePouch", Vector3.new(0.7, 0.7, 0.7) * s, CFrame.new(-1.1 * s, -0.3 * s, 0.3 * s), BLACK)
+	end
+
+	local gui, fill, alert = makeHealthBar(root, 4.5 * s)
+
+	return {
+		Kind = kind,
+		Def = def,
+		Team = def.Team,
+		Model = model,
+		Root = root,
+		Health = def.Health,
+		MaxHealth = def.Health,
+		Dead = false,
+		NextAttack = 0,
+		Aiming = false,
+		AimEnd = 0,
+		AimDir = root.CFrame.LookVector,
+		AimPoint = root.Position,
+		Owner = nil,
+		ArmWelds = { leftWeld, rightWeld },
+		WeaponWeld = weaponWeld,
+		Poses = poses,
+		Bar = fill,
+		BarGui = gui,
+		Alert = alert,
+		Facing = root.CFrame.LookVector,
+	}
+end
+
+local function buildDragoon(kind: string, def: Config.UnitDef, cf: CFrame): Unit
+	local model = Instance.new("Model")
+	model.Name = def.DisplayName
+
+	local root = Instance.new("Part")
+	root.Name = "Root"
+	root.Size = Vector3.new(3, 6.5, 6.5)
+	root.Transparency = 1
+	root.Anchored = true
+	root.CanCollide = true
+	root.CanTouch = false
+	root.CFrame = CFrame.new(cf.Position.X, 3.25, cf.Position.Z) * cf.Rotation
+	root.Parent = model
+	model.PrimaryPart = root
+
+	local horse = Color3.fromRGB(85, 55, 35)
+	addPart(model, root, "Body", Vector3.new(2.4, 2.4, 5), CFrame.new(0, -0.1, 0.2), horse)
+	for _, x in { -0.8, 0.8 } do
+		for _, z in { -1.8, 2.0 } do
+			addPart(model, root, "HorseLeg", Vector3.new(0.6, 2.2, 0.6), CFrame.new(x, -2.2, z), horse)
+		end
+	end
+	addPart(model, root, "Neck", Vector3.new(1, 2.4, 1.1), CFrame.new(0, 1.0, -2.5) * CFrame.Angles(math.rad(-30), 0, 0), horse)
+	addPart(model, root, "HorseHead", Vector3.new(1, 1, 2.1), CFrame.new(0, 2.0, -3.2) * CFrame.Angles(math.rad(20), 0, 0), horse)
+	addPart(model, root, "Tail", Vector3.new(0.4, 1.8, 0.4), CFrame.new(0, -0.3, 2.9) * CFrame.Angles(math.rad(25), 0, 0), BLACK)
+	addPart(model, root, "Saddle", Vector3.new(2.5, 0.3, 1.6), CFrame.new(0, 1.15, 0.3), Color3.fromRGB(60, 40, 30))
+
+	-- Rider.
+	addPart(model, root, "Torso", Vector3.new(1.8, 1.8, 1), CFrame.new(0, 2.2, 0.3), def.CoatColor, Enum.Material.Fabric)
+	for _, x in { -1.3, 1.3 } do
+		addPart(model, root, "RiderLeg", Vector3.new(0.6, 1.8, 0.7), CFrame.new(x, 0.9, 0.0), WHITE)
+	end
+	addPart(model, root, "Head", Vector3.new(1, 1, 1), CFrame.new(0, 3.6, 0.3), SKIN)
+	addHat(model, root, def.Hat, 3.6, def)
+
+	local poses = {
+		Idle = {
+			CFrame.new(-1.25, 2.2, 0.3),
+			CFrame.new(1.25, 2.4, -0.2) * CFrame.Angles(math.rad(40), 0, 0),
+			CFrame.new(1.35, 3.6, -0.5) * CFrame.Angles(math.rad(70), 0, 0),
+		},
+		Aim = {
+			CFrame.new(-1.25, 2.2, 0.3),
+			CFrame.new(1.4, 2.6, -0.9) * CFrame.Angles(math.rad(100), 0, 0),
+			CFrame.new(1.5, 2.5, -2.8) * CFrame.Angles(math.rad(-10), 0, 0),
+		},
+	}
+	local _, leftWeld = addPosable(model, root, "LeftArm", Vector3.new(0.6, 1.8, 0.6), poses.Idle[1], def.CoatColor, Enum.Material.Fabric)
+	local _, rightWeld = addPosable(model, root, "RightArm", Vector3.new(0.6, 1.8, 0.6), poses.Idle[2], def.CoatColor, Enum.Material.Fabric)
+	local _, sabreWeld = addPosable(model, root, "Sabre", Vector3.new(0.12, 0.35, 3.4), poses.Idle[3], Color3.fromRGB(210, 210, 215), Enum.Material.Metal)
+
+	local gui, fill, alert = makeHealthBar(root, 5.5)
+
+	return {
+		Kind = kind,
+		Def = def,
+		Team = def.Team,
+		Model = model,
+		Root = root,
+		Health = def.Health,
+		MaxHealth = def.Health,
+		Dead = false,
+		NextAttack = 0,
+		Aiming = false,
+		AimEnd = 0,
+		AimDir = root.CFrame.LookVector,
+		AimPoint = root.Position,
+		Owner = nil,
+		ArmWelds = { leftWeld, rightWeld },
+		WeaponWeld = sabreWeld,
+		Poses = poses,
+		Bar = fill,
+		BarGui = gui,
+		Alert = alert,
+		Facing = root.CFrame.LookVector,
+	}
+end
+
+local function buildCannon(kind: string, def: Config.UnitDef, cf: CFrame): Unit
+	local model = Instance.new("Model")
+	model.Name = def.DisplayName
+
+	local root = Instance.new("Part")
+	root.Name = "Root"
+	root.Size = Vector3.new(4.5, 4, 7)
+	root.Transparency = 1
+	root.Anchored = true
+	root.CanCollide = true
+	root.CanTouch = false
+	root.CFrame = CFrame.new(cf.Position.X, 2, cf.Position.Z) * cf.Rotation
+	root.Parent = model
+	model.PrimaryPart = root
+
+	addPart(model, root, "Carriage", Vector3.new(1.8, 1, 5.5), CFrame.new(0, -0.6, 0.6) * CFrame.Angles(math.rad(-6), 0, 0), Color3.fromRGB(90, 70, 50), Enum.Material.Wood)
+	addPart(model, root, "Trail", Vector3.new(1.2, 0.6, 2.5), CFrame.new(0, -1.5, 3.2), Color3.fromRGB(90, 70, 50), Enum.Material.Wood)
+	for _, x in { -1.5, 1.5 } do
+		addPart(model, root, "Wheel", Vector3.new(0.45, 3.4, 3.4), CFrame.new(x, -0.3, 0), Color3.fromRGB(70, 50, 35), Enum.Material.Wood, Enum.PartType.Cylinder)
+	end
+	addPart(model, root, "Barrel", Vector3.new(6.5, 1.2, 1.2), CFrame.new(0, 0.6, -1.4) * CFrame.Angles(0, math.rad(90), 0), Color3.fromRGB(160, 120, 60), Enum.Material.Metal, Enum.PartType.Cylinder)
+
+	-- A gunner standing behind the piece.
+	addPart(model, root, "GunnerTorso", Vector3.new(1.6, 1.8, 0.9), CFrame.new(1.8, 0.4, 2.6), Color3.fromRGB(30, 40, 90), Enum.Material.Fabric)
+	addPart(model, root, "GunnerHead", Vector3.new(1, 1, 1), CFrame.new(1.8, 1.8, 2.6), SKIN)
+	addPart(model, root, "GunnerHat", Vector3.new(1.6, 0.35, 1.6), CFrame.new(1.8, 2.45, 2.6), BLACK)
+	addPart(model, root, "GunnerLegs", Vector3.new(1.4, 1.6, 0.8), CFrame.new(1.8, -1.2, 2.6), WHITE)
+
+	local gui, fill, alert = makeHealthBar(root, 4.5)
+
+	return {
+		Kind = kind,
+		Def = def,
+		Team = def.Team,
+		Model = model,
+		Root = root,
+		Health = def.Health,
+		MaxHealth = def.Health,
+		Dead = false,
+		NextAttack = 0,
+		Aiming = false,
+		AimEnd = 0,
+		AimDir = root.CFrame.LookVector,
+		AimPoint = root.Position,
+		Owner = nil,
+		ArmWelds = {},
+		WeaponWeld = nil,
+		Poses = { Idle = {}, Aim = {} },
+		Bar = fill,
+		BarGui = gui,
+		Alert = alert,
+		Facing = root.CFrame.LookVector,
+	}
+end
+
+local function setPose(unit: Unit, pose: string)
+	local p = unit.Poses[pose]
+	if not p or #p == 0 then
+		return
+	end
+	if unit.ArmWelds[1] then
+		unit.ArmWelds[1].C0 = p[1]
+	end
+	if unit.ArmWelds[2] then
+		unit.ArmWelds[2].C0 = p[2]
+	end
+	if unit.WeaponWeld and p[3] then
+		unit.WeaponWeld.C0 = p[3]
+	end
+end
+
+local function shout(unit: Unit, text: string, duration: number?)
+	local alert = unit.Alert
+	if not alert then
+		return
+	end
+	alert.Text = text
+	local stamp = now()
+	alert:SetAttribute("Stamp", stamp)
+	if duration then
+		task.delay(duration, function()
+			if alert.Parent and alert:GetAttribute("Stamp") == stamp then
+				alert.Text = ""
+			end
+		end)
+	end
+end
+
+---------------------------------------------------------------------------
+-- Spawning
+---------------------------------------------------------------------------
+
+function Units.Spawn(kind: string, position: Vector3, facing: Vector3, owner: Player?): Unit
+	local def = Config.Units[kind]
+	assert(def, "Unknown unit kind " .. tostring(kind))
+	local cf = CFrame.lookAt(flat(position), flat(position) + flatUnit(facing, Vector3.new(0, 0, 1)))
+
+	local unit: Unit
+	if def.Attack == "Sabre" then
+		unit = buildDragoon(kind, def, cf)
+	elseif def.Attack == "Cannon" then
+		unit = buildCannon(kind, def, cf)
+	else
+		unit = buildSoldier(kind, def, cf)
+	end
+
+	unit.Owner = owner
+	-- Stagger first shots so a fresh wave doesn't fire in perfect unison.
+	unit.NextAttack = now() + 1 + math.random() * 2
+	unit.Model:SetAttribute("Team", def.Team)
+	unit.Model:SetAttribute("Kind", kind)
+	if owner then
+		unit.Model:SetAttribute("Owner", owner.UserId)
+	end
+	if def.Team == "Blue" then
+		unit.Bar.BackgroundColor3 = Color3.fromRGB(80, 140, 230)
+		unit.Bar.Parent.Visible = true
+	end
+	unit.Model.Parent = if def.Team == "Red" then redFolder else blueFolder
+
+	table.insert(units, unit)
+	byModel[unit.Model] = unit
+	return unit
+end
+
+-- Line infantry march as a formation and fire volleys on the officer's word.
+function Units.SpawnFormation(spec: { Ranks: number, Files: number, Officer: boolean }, center: Vector3, facing: Vector3)
+	local group = {
+		Center = flat(center),
+		Facing = facing.Unit,
+		Members = {},
+		State = "March",
+		NextVolley = now() + 3,
+		Officer = nil :: Unit?,
+		HoldSince = 0,
+	}
+	local spacing = 3.2
+	local frame = CFrame.lookAt(group.Center, group.Center + group.Facing)
+	for rank = 1, spec.Ranks do
+		for file = 1, spec.Files do
+			local offset = Vector3.new((file - (spec.Files + 1) / 2) * spacing, 0, (rank - 1) * 3.6)
+			local unit = Units.Spawn("Regular", frame:PointToWorldSpace(offset), facing)
+			unit.Group = group
+			unit.SlotOffset = offset
+			table.insert(group.Members, unit)
+		end
+	end
+	if spec.Officer then
+		local offset = Vector3.new(0, 0, spec.Ranks * 3.6 + 2)
+		local officer = Units.Spawn("Officer", frame:PointToWorldSpace(offset), facing)
+		officer.Group = group
+		officer.SlotOffset = offset
+		group.Officer = officer
+		table.insert(group.Members, officer)
+	end
+	table.insert(groups, group)
+	return group
+end
+
+---------------------------------------------------------------------------
+-- Targeting
+---------------------------------------------------------------------------
+
+local function livingCharacters(): { { Player: Player, Root: BasePart, Humanoid: Humanoid } }
+	local list = {}
+	for _, player in Players:GetPlayers() do
+		local char = player.Character
+		if char then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if hum and root and hum.Health > 0 then
+				table.insert(list, { Player = player, Root = root, Humanoid = hum })
+			end
+		end
+	end
+	return list
+end
+Units.LivingCharacters = livingCharacters
+
+local function storesTarget(from: Vector3): Target?
+	if storesHealth() <= 0 then
+		return nil
+	end
+	local pos = storesPosition()
+	return {
+		Kind = "Stores",
+		Position = Vector3.new(pos.X, Config.ShotHeight, pos.Z),
+		Distance = math.max(0, (flat(pos) - flat(from)).Magnitude - 9),
+	}
+end
+
+-- Nearest enemy of `team` (players, militia, or redcoats) within maxDist.
+local function nearestHostile(team: string, from: Vector3, maxDist: number, playersOnly: boolean?): Target?
+	local best: Target? = nil
+	local bestDist = maxDist
+	if team == "Red" then
+		for _, c in livingCharacters() do
+			local d = (flat(c.Root.Position) - flat(from)).Magnitude
+			if d < bestDist then
+				bestDist = d
+				best = { Kind = "Player", Position = c.Root.Position, Player = c.Player, Humanoid = c.Humanoid, Distance = d }
+			end
+		end
+	end
+	if not playersOnly then
+		for _, u in units do
+			if not u.Dead and u.Team ~= team then
+				local d = (flat(u.Root.Position) - flat(from)).Magnitude
+				if d < bestDist then
+					bestDist = d
+					best = { Kind = "Unit", Position = u.Root.Position, Unit = u, Distance = d }
+				end
+			end
+		end
+	end
+	return best
+end
+
+local function hasLineOfSight(from: Vector3, to: Vector3): boolean
+	local origin = Vector3.new(from.X, Config.ShotHeight, from.Z)
+	local delta = Vector3.new(to.X, Config.ShotHeight, to.Z) - origin
+	if delta.Magnitude < 1 then
+		return true
+	end
+	return workspace:Raycast(origin, delta, coverParams) == nil
+end
+
+---------------------------------------------------------------------------
+-- Damage
+---------------------------------------------------------------------------
+
+local function updateBar(unit: Unit)
+	if unit.Bar then
+		unit.Bar.Size = UDim2.fromScale(math.clamp(unit.Health / unit.MaxHealth, 0, 1), 1)
+		;(unit.Bar.Parent :: Frame).Visible = true
+	end
+end
+
+local function removeFromGroup(unit: Unit)
+	local group = unit.Group
+	if not group then
+		return
+	end
+	local idx = table.find(group.Members, unit)
+	if idx then
+		table.remove(group.Members, idx)
+	end
+	if group.Officer == unit then
+		group.Officer = nil
+	end
+end
+
+function Units.Kill(unit: Unit, killer: Player?)
+	if unit.Dead then
+		return
+	end
+	unit.Dead = true
+	unit.Health = 0
+	byModel[unit.Model] = nil
+	local idx = table.find(units, unit)
+	if idx then
+		table.remove(units, idx)
+	end
+	removeFromGroup(unit)
+
+	if unit.BarGui then
+		unit.BarGui:Destroy()
+	end
+	-- Topple over and fade.
+	local root = unit.Root
+	root.CanCollide = false
+	root.CanQuery = false
+	if unit.Def.Attack ~= "Cannon" then
+		local fallDir = if math.random() < 0.5 then 1 else -1
+		root.CFrame = root.CFrame * CFrame.new(0, -root.Size.Y / 2 + 0.6, 0) * CFrame.Angles(math.rad(85) * fallDir, 0, 0) * CFrame.new(0, root.Size.Y / 2 - 0.6, 0)
+	end
+	for _, d in unit.Model:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.CanCollide = false
+			d.CanQuery = false
+		end
+	end
+	unit.Model:SetAttribute("Dead", true)
+	Debris:AddItem(unit.Model, 6)
+
+	if Units.OnKill then
+		Units.OnKill(killer, unit)
+	end
+end
+
+function Units.Damage(unit: Unit, amount: number, attacker: Player?)
+	if unit.Dead then
+		return
+	end
+	unit.Health -= amount
+	updateBar(unit)
+	if unit.Health <= 0 then
+		Units.Kill(unit, attacker)
+	end
+end
+
+function Units.DamageStores(amount: number)
+	local hp = storesHealth()
+	if hp <= 0 then
+		return
+	end
+	hp = math.max(0, hp - amount)
+	gameState:SetAttribute("StoresHealth", hp)
+	if hp <= 0 and Units.OnStoresDestroyed then
+		Units.OnStoresDestroyed()
+	end
+end
+
+-- Resolve a raycast hit into damage. Returns true if something living was hit.
+function Units.ApplyHit(inst: Instance, damage: number, attackerTeam: string, attacker: Player?): boolean
+	local model = inst:FindFirstAncestorOfClass("Model")
+	if not model then
+		return false
+	end
+	local unit = byModel[model]
+	if unit then
+		if unit.Team ~= attackerTeam then
+			Units.Damage(unit, damage, attacker)
+		end
+		return true
+	end
+	local player = Players:GetPlayerFromCharacter(model)
+	if player then
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		if hum and attackerTeam == "Red" then
+			hum:TakeDamage(damage)
+		end
+		return true
+	end
+	if model == storesModel then
+		if attackerTeam == "Red" then
+			Units.DamageStores(damage)
+		end
+		return false
+	end
+	return false
+end
+
+-- Damage everything hostile to `attackerTeam` within radius of pos.
+function Units.AreaDamage(pos: Vector3, radius: number, damage: number, attackerTeam: string, storesMultiplier: number?)
+	if attackerTeam == "Red" then
+		for _, c in livingCharacters() do
+			local d = (c.Root.Position - pos).Magnitude
+			if d <= radius then
+				c.Humanoid:TakeDamage(damage * (1 - 0.5 * d / radius))
+			end
+		end
+		local sp = storesPosition()
+		if (flat(sp) - flat(pos)).Magnitude <= radius + 8 then
+			Units.DamageStores(damage * (storesMultiplier or 1))
+		end
+	end
+	for i = #units, 1, -1 do
+		local u = units[i]
+		if u and not u.Dead and u.Team ~= attackerTeam then
+			local d = (u.Root.Position - pos).Magnitude
+			if d <= radius then
+				Units.Damage(u, damage * (1 - 0.5 * d / radius), nil)
+			end
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- Attacks
+---------------------------------------------------------------------------
+
+local function shotParamsFor(team: string): RaycastParams
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local exclude: { Instance } = { workspace:FindFirstChild("Effects") :: Instance }
+	if team == "Red" then
+		table.insert(exclude, redFolder)
+	else
+		table.insert(exclude, blueFolder)
+		for _, p in Players:GetPlayers() do
+			if p.Character then
+				table.insert(exclude, p.Character)
+			end
+		end
+	end
+	params.FilterDescendantsInstances = exclude
+	return params
+end
+
+local function fireMusket(unit: Unit)
+	local def = unit.Def
+	local dir = rotateY(unit.AimDir, (math.random() * 2 - 1) * def.Spread)
+	local origin = Vector3.new(unit.Root.Position.X, Config.ShotHeight, unit.Root.Position.Z) + dir * 2
+	local range = def.Range * 1.2
+	local result = workspace:Raycast(origin, dir * range, shotParamsFor(unit.Team))
+	local hitPos = origin + dir * range
+	if result then
+		hitPos = result.Position
+		local flesh = Units.ApplyHit(result.Instance, def.Damage, unit.Team, unit.Owner)
+		FX.Hit(hitPos, flesh)
+	end
+	FX.Shot(origin, { hitPos }, unit.Team)
+end
+
+local function throwGrenade(unit: Unit)
+	local def = unit.Def
+	local from = unit.Root.Position + Vector3.new(0, 2, 0)
+	local scatter = rotateY(Vector3.new(0, 0, 1), math.random() * 360) * math.random() * 4
+	local to = Vector3.new(unit.AimPoint.X, 0.5, unit.AimPoint.Z) + scatter
+	local flightTime = 1.1
+	FX.Grenade(from, to, flightTime)
+	task.delay(flightTime, function()
+		FX.Explosion(to, 11)
+		Units.AreaDamage(to, 11, def.Damage, "Red", 2)
+	end)
+end
+
+local function sabreStrike(unit: Unit, target: Target)
+	local def = unit.Def
+	if target.Distance > def.Range + 2.5 then
+		return
+	end
+	FX.Slash(unit.Root.Position, unit.Facing)
+	if target.Kind == "Player" and target.Humanoid then
+		target.Humanoid:TakeDamage(def.Damage)
+	elseif target.Kind == "Unit" and target.Unit then
+		Units.Damage(target.Unit, def.Damage, nil)
+	elseif target.Kind == "Stores" then
+		Units.DamageStores(def.Damage)
+	end
+end
+
+local function fireCannon(unit: Unit)
+	local def = unit.Def
+	local dir = unit.AimDir
+	local origin = Vector3.new(unit.Root.Position.X, Config.ShotHeight, unit.Root.Position.Z) + dir * 5
+	local range = CANNON_RANGE
+	local speed = 160
+	local to = origin + dir * range
+	FX.Cannonball(origin, to, range / speed)
+	FX.Explosion(origin, 3)
+
+	task.spawn(function()
+		local hitPlayers: { [Player]: boolean } = {}
+		local hitUnits: { [any]: boolean } = {}
+		local hitStores = false
+		local traveled = 0
+		local radius = 3.5
+		while traveled < range do
+			local dt = task.wait()
+			traveled += speed * dt
+			local pos = origin + dir * math.min(traveled, range)
+			for _, c in livingCharacters() do
+				if not hitPlayers[c.Player] and (flat(c.Root.Position) - flat(pos)).Magnitude <= radius then
+					hitPlayers[c.Player] = true
+					c.Humanoid:TakeDamage(def.Damage)
+					FX.Hit(c.Root.Position, true)
+				end
+			end
+			for _, u in units do
+				if not u.Dead and u.Team ~= "Red" and not hitUnits[u] and (flat(u.Root.Position) - flat(pos)).Magnitude <= radius then
+					hitUnits[u] = true
+					Units.Damage(u, def.Damage, nil)
+				end
+			end
+			if not hitStores and (flat(storesPosition()) - flat(pos)).Magnitude <= 9 then
+				hitStores = true
+				Units.DamageStores(def.Damage * 1.5)
+				FX.Explosion(pos, 6)
+				break
+			end
+		end
+	end)
+end
+
+local function beginAim(unit: Unit, target: Target, aimTime: number)
+	unit.Aiming = true
+	unit.AimTarget = target
+	unit.AimPoint = target.Position
+	unit.AimDir = flatUnit(target.Position - unit.Root.Position, unit.Facing)
+	unit.AimEnd = now() + aimTime
+	unit.Facing = unit.AimDir
+	setPose(unit, "Aim")
+	if unit.Def.Attack == "Cannon" then
+		local origin = Vector3.new(unit.Root.Position.X, 0.3, unit.Root.Position.Z)
+		FX.CannonWarn(origin, origin + unit.AimDir * CANNON_RANGE, aimTime)
+	elseif unit.Def.Attack == "Grenade" then
+		FX.Marker(Vector3.new(target.Position.X, 0.3, target.Position.Z), 11, aimTime + 1.1)
+	end
+	if unit.Team == "Red" and unit.Group == nil then
+		shout(unit, "!", aimTime)
+	end
+end
+
+local function officerAura(pos: Vector3): number
+	for _, u in units do
+		if u.Kind == "Officer" and not u.Dead and (u.Root.Position - pos).Magnitude <= Config.OfficerAura.Radius then
+			return Config.OfficerAura.ReloadMultiplier
+		end
+	end
+	return 1
+end
+
+local function executeAttack(unit: Unit)
+	unit.Aiming = false
+	local def = unit.Def
+	local attack = def.Attack
+	if attack == "Musket" then
+		fireMusket(unit)
+	elseif attack == "Grenade" then
+		throwGrenade(unit)
+	elseif attack == "Cannon" then
+		fireCannon(unit)
+	end
+	local reload = def.Reload
+	if unit.Team == "Red" then
+		reload *= officerAura(unit.Root.Position)
+	end
+	unit.NextAttack = now() + reload * (0.9 + math.random() * 0.2)
+	setPose(unit, "Idle")
+end
+
+---------------------------------------------------------------------------
+-- Movement
+---------------------------------------------------------------------------
+
+-- Pick a direction near `desired` that isn't blocked by cover.
+local function steer(pos: Vector3, desired: Vector3): Vector3
+	local origin = Vector3.new(pos.X, Config.ShotHeight, pos.Z)
+	for _, angle in { 0, 35, -35, 70, -70, 110, -110 } do
+		local dir = if angle == 0 then desired else rotateY(desired, angle)
+		if not workspace:Raycast(origin, dir * 5, coverParams) then
+			return dir
+		end
+	end
+	return -desired
+end
+
+local function separation(unit: Unit): Vector3
+	local push = Vector3.zero
+	local pos = unit.Root.Position
+	for _, other in units do
+		if other ~= unit and not other.Dead then
+			local delta = flat(pos - other.Root.Position)
+			local d = delta.Magnitude
+			if d > 0.01 and d < 2.6 then
+				push += delta.Unit * (2.6 - d)
+			end
+		end
+	end
+	return push
+end
+
+local function moveUnit(unit: Unit, desired: Vector3, speed: number, dt: number)
+	local pos = unit.Root.Position
+	local dir = steer(pos, desired)
+	local step = dir * speed * dt + separation(unit) * dt * 4
+	local newPos = clampToMap(pos + step)
+	newPos = Vector3.new(newPos.X, pos.Y, newPos.Z)
+	if not unit.Aiming then
+		-- Turn smoothly toward the direction of travel.
+		unit.Facing = flatUnit(unit.Facing:Lerp(dir, math.min(1, dt * 6)), dir)
+	end
+	unit.Root.CFrame = CFrame.lookAt(newPos, newPos + unit.Facing)
+end
+
+local function faceTowards(unit: Unit, dir: Vector3, dt: number)
+	local pos = unit.Root.Position
+	unit.Facing = flatUnit(unit.Facing:Lerp(dir, math.min(1, dt * 8)), dir)
+	unit.Root.CFrame = CFrame.lookAt(pos, pos + unit.Facing)
+end
+
+---------------------------------------------------------------------------
+-- AI
+---------------------------------------------------------------------------
+
+local function redTarget(from: Vector3, aggro: number): Target?
+	return nearestHostile("Red", from, aggro) or storesTarget(from)
+end
+
+local function updateGroup(group: any, dt: number)
+	local members = group.Members
+	if #members == 0 then
+		return
+	end
+	local line = Config.Units.Regular
+	local target = redTarget(group.Center, 140)
+	if not target then
+		return
+	end
+	local toTarget = flat(target.Position - group.Center)
+	local dist = if target.Kind == "Stores" then target.Distance else toTarget.Magnitude
+	local desiredFacing = flatUnit(toTarget, group.Facing)
+	group.Facing = flatUnit(group.Facing:Lerp(desiredFacing, math.min(1, dt * 1.2)), desiredFacing)
+
+	local t = now()
+	if dist > line.Range * 0.85 then
+		if group.State == "Hold" and t - group.HoldSince < 4 then
+			-- Finish the current volley before moving off.
+		else
+			group.State = "March"
+			-- Wait for stragglers so the line stays dressed.
+			local lag = 0
+			local frame = CFrame.lookAt(group.Center, group.Center + group.Facing)
+			for _, m in members do
+				lag += (flat(m.Root.Position) - frame:PointToWorldSpace(m.SlotOffset)).Magnitude
+			end
+			lag /= #members
+			local speed = line.Speed * (if lag > 5 then 0.3 else 1)
+			local step = desiredFacing * speed * dt
+			group.Center = clampToMap(group.Center + step)
+		end
+	else
+		if group.State ~= "Hold" then
+			group.State = "Hold"
+			group.HoldSince = t
+			group.NextVolley = math.max(group.NextVolley, t + 1.5)
+			if group.Officer then
+				shout(group.Officer, "Halt! Make ready!", 1.5)
+			end
+		end
+		if t >= group.NextVolley then
+			local reload = line.Reload * (if group.Officer then Config.OfficerAura.ReloadMultiplier else 1)
+			group.NextVolley = t + reload + line.AimTime
+			group.HoldSince = t
+			for _, m in members do
+				if m.Kind == "Regular" and not m.Aiming then
+					local own = nearestHostile("Red", m.Root.Position, line.Range) or storesTarget(m.Root.Position)
+					local aimAt = if own and own.Distance <= line.Range then own else target
+					if aimAt.Distance <= line.Range * 1.15 then
+						beginAim(m, aimAt, line.AimTime)
+					end
+				end
+			end
+			if group.Officer then
+				shout(group.Officer, "Present!", line.AimTime * 0.9)
+				task.delay(line.AimTime, function()
+					if group.Officer and not group.Officer.Dead then
+						shout(group.Officer, "FIRE!", 1)
+					end
+				end)
+			end
+		end
+	end
+end
+
+local function updateFormationMember(unit: Unit, dt: number)
+	local group = unit.Group
+	local frame = CFrame.lookAt(group.Center, group.Center + group.Facing)
+	local slot = frame:PointToWorldSpace(unit.SlotOffset)
+	local toSlot = flat(slot - unit.Root.Position)
+
+	if unit.Aiming then
+		faceTowards(unit, unit.AimDir, dt)
+		if now() >= unit.AimEnd then
+			executeAttack(unit)
+		end
+		return
+	end
+
+	-- The officer fights back on his own with his pistol.
+	if unit.Kind == "Officer" and now() >= unit.NextAttack then
+		local target = nearestHostile("Red", unit.Root.Position, unit.Def.Range)
+		if target and hasLineOfSight(unit.Root.Position, target.Position) then
+			beginAim(unit, target, unit.Def.AimTime)
+			return
+		end
+	end
+
+	if toSlot.Magnitude > 0.4 then
+		local speed = unit.Def.Speed * 1.5
+		local step = math.min(toSlot.Magnitude, speed * dt)
+		moveUnit(unit, toSlot.Unit, step / dt, dt)
+		if toSlot.Magnitude < 2 then
+			faceTowards(unit, group.Facing, dt)
+		end
+	else
+		faceTowards(unit, group.Facing, dt)
+	end
+end
+
+local function updateIndividual(unit: Unit, dt: number)
+	local def = unit.Def
+	local pos = unit.Root.Position
+	local t = now()
+
+	if unit.Aiming then
+		faceTowards(unit, unit.AimDir, dt)
+		if t >= unit.AimEnd then
+			if def.Attack == "Sabre" then
+				unit.Aiming = false
+				local target = unit.AimTarget
+				if target then
+					-- Re-measure: the target may have dodged.
+					if target.Kind == "Player" and target.Humanoid then
+						local r = target.Humanoid.RootPart
+						target.Distance = if r then (flat(r.Position) - flat(pos)).Magnitude else math.huge
+					elseif target.Kind == "Unit" and target.Unit then
+						target.Distance = (flat(target.Unit.Root.Position) - flat(pos)).Magnitude
+					end
+					sabreStrike(unit, target)
+				end
+				unit.NextAttack = t + def.Reload
+				setPose(unit, "Idle")
+			else
+				executeAttack(unit)
+			end
+		end
+		return
+	end
+
+	local target: Target?
+	if unit.Team == "Blue" then
+		target = nearestHostile("Blue", pos, 130)
+	elseif def.Attack == "Sabre" then
+		target = nearestHostile("Red", pos, 400, true) or nearestHostile("Red", pos, 160) or storesTarget(pos)
+	elseif def.Attack == "Cannon" then
+		target = nearestHostile("Red", pos, def.Range) or storesTarget(pos)
+	else
+		target = redTarget(pos, 150)
+	end
+
+	if not target then
+		-- Militia with nothing to shoot fall in beside their owner.
+		if unit.Team == "Blue" then
+			local owner = unit.Owner
+			local char = owner and owner.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local home = if root then root.Position else storesPosition() + Vector3.new(0, 0, -20)
+			local toHome = flat(home - pos)
+			if toHome.Magnitude > 12 then
+				moveUnit(unit, toHome.Unit, def.Speed, dt)
+			end
+		end
+		return
+	end
+
+	local toTarget = flat(target.Position - pos)
+	local dir = flatUnit(toTarget, unit.Facing)
+	local inRange = target.Distance <= def.Range
+	local ignoresCover = def.Attack == "Grenade" or def.Attack == "Cannon" or def.Attack == "Sabre"
+	local los = ignoresCover or hasLineOfSight(pos, target.Position)
+
+	if inRange and los then
+		if t >= unit.NextAttack then
+			beginAim(unit, target, def.AimTime)
+		elseif def.Attack == "Sabre" then
+			-- Wheel around and come back for another pass.
+			moveUnit(unit, dir, def.Speed * 0.6, dt)
+		else
+			faceTowards(unit, dir, dt)
+		end
+	elseif def.Speed > 0 then
+		moveUnit(unit, dir, def.Speed, dt)
+	else
+		faceTowards(unit, dir, dt)
+	end
+end
+
+function Units.Step(dt: number)
+	for i = #groups, 1, -1 do
+		local g = groups[i]
+		if #g.Members == 0 then
+			table.remove(groups, i)
+		else
+			updateGroup(g, dt)
+		end
+	end
+	-- Iterate over a snapshot: attacks can kill units mid-loop.
+	local snapshot = table.clone(units)
+	for _, unit in snapshot do
+		if not unit.Dead and unit.Root.Parent then
+			if unit.Group then
+				updateFormationMember(unit, dt)
+			else
+				updateIndividual(unit, dt)
+			end
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- Queries and lifecycle
+---------------------------------------------------------------------------
+
+function Units.FromInstance(inst: Instance): Unit?
+	local model = inst:FindFirstAncestorOfClass("Model")
+	return model and byModel[model] or nil
+end
+
+function Units.Count(team: string): number
+	local n = 0
+	for _, u in units do
+		if u.Team == team and not u.Dead then
+			n += 1
+		end
+	end
+	return n
+end
+
+function Units.CountOwnedBy(player: Player): number
+	local n = 0
+	for _, u in units do
+		if u.Owner == player and not u.Dead then
+			n += 1
+		end
+	end
+	return n
+end
+
+function Units.All(): { Unit }
+	return units
+end
+
+function Units.Clear(team: string?)
+	for i = #units, 1, -1 do
+		local u = units[i]
+		if team == nil or u.Team == team then
+			byModel[u.Model] = nil
+			u.Dead = true
+			u.Model:Destroy()
+			table.remove(units, i)
+		end
+	end
+	if team == nil or team == "Red" then
+		table.clear(groups)
+	end
+end
+
+function Units.RemoveOwnedBy(player: Player)
+	for i = #units, 1, -1 do
+		local u = units[i]
+		if u.Owner == player then
+			byModel[u.Model] = nil
+			u.Dead = true
+			u.Model:Destroy()
+			table.remove(units, i)
+		end
+	end
+end
+
+function Units.Init(map: Folder, stores: Model, state: Instance)
+	storesModel = stores
+	gameState = state
+	coverFolder = map:WaitForChild("Cover")
+	coverParams.FilterDescendantsInstances = { coverFolder }
+
+	redFolder = Instance.new("Folder")
+	redFolder.Name = "Redcoats"
+	redFolder.Parent = workspace
+	blueFolder = Instance.new("Folder")
+	blueFolder.Name = "Militia"
+	blueFolder.Parent = workspace
+end
+
+return Units
+]]></ProtectedString></Properties></Item></Item><Item class="StarterPlayer" referent="RBX00000010"><Properties><string name="Name">StarterPlayer</string></Properties><Item class="StarterPlayerScripts" referent="RBX0000000E"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX0000000B"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Redcoat Invasion client: top-down camera, mouse aiming and input.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Effects = require(script.Parent:WaitForChild("Effects"))
+local Interface = require(script.Parent:WaitForChild("Interface"))
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local fireRemote = remotes:WaitForChild("Fire") :: RemoteEvent
+local reloadRemote = remotes:WaitForChild("Reload") :: RemoteEvent
+local meleeRemote = remotes:WaitForChild("Melee") :: RemoteEvent
+local equipRemote = remotes:WaitForChild("Equip") :: RemoteEvent
+
+-- Hide default Roblox UI we don't use.
+for _, coreType in { Enum.CoreGuiType.Backpack, Enum.CoreGuiType.Health } do
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(coreType, false)
+	end)
+end
+
+Effects.Init()
+Interface.Init()
+
+---------------------------------------------------------------------------
+-- Camera
+---------------------------------------------------------------------------
+
+local MIN_HEIGHT, MAX_HEIGHT = 45, 120
+local cameraHeight = 75
+local cameraFocus = Config.Map.PlayerSpawn
+
+local function getCharacter(): (Model?, BasePart?, Humanoid?)
+	local char = player.Character
+	if not char then
+		return nil, nil, nil
+	end
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	return char, root, hum
+end
+
+-- Where the mouse points on the plane that musket balls travel along.
+local function mouseAimPoint(): Vector3?
+	local mouse = UserInputService:GetMouseLocation()
+	local ray = camera:ViewportPointToRay(mouse.X, mouse.Y)
+	if math.abs(ray.Direction.Y) < 1e-4 then
+		return nil
+	end
+	local t = (Config.ShotHeight - ray.Origin.Y) / ray.Direction.Y
+	if t < 0 then
+		return nil
+	end
+	return ray.Origin + ray.Direction * t
+end
+
+UserInputService.InputChanged:Connect(function(input, processed)
+	if input.UserInputType == Enum.UserInputType.MouseWheel and not processed then
+		cameraHeight = math.clamp(cameraHeight - input.Position.Z * 6, MIN_HEIGHT, MAX_HEIGHT)
+	end
+end)
+
+RunService:BindToRenderStep("RedcoatCamera", Enum.RenderPriority.Camera.Value + 1, function(dt)
+	camera.CameraType = Enum.CameraType.Scriptable
+	local _, root, hum = getCharacter()
+	local target: Vector3
+	if root and hum and hum.Health > 0 then
+		target = root.Position
+		-- Peek slightly toward the cursor so you can see further ahead.
+		local aim = mouseAimPoint()
+		if aim then
+			local lean = Vector3.new(aim.X - target.X, 0, aim.Z - target.Z)
+			if lean.Magnitude > 40 then
+				lean = lean.Unit * 40
+			end
+			target += lean * 0.25
+		end
+	else
+		-- Spectate the powder stores while down.
+		target = Config.Map.StoresPosition + Vector3.new(0, 0, -40)
+	end
+	cameraFocus = cameraFocus:Lerp(Vector3.new(target.X, 0, target.Z), math.min(1, dt * 8))
+	-- Mostly overhead with a slight tilt, so "up" on screen is north.
+	camera.CFrame = CFrame.lookAt(cameraFocus + Vector3.new(0, cameraHeight, cameraHeight * 0.3), cameraFocus)
+	camera.FieldOfView = 60
+end)
+
+-- Face the mouse.
+RunService.RenderStepped:Connect(function()
+	local _, root, hum = getCharacter()
+	if root and hum and hum.Health > 0 and not Interface.IsShopOpen() then
+		hum.AutoRotate = false
+		local aim = mouseAimPoint()
+		if aim then
+			local flatAim = Vector3.new(aim.X, root.Position.Y, aim.Z)
+			if (flatAim - root.Position).Magnitude > 0.5 then
+				root.CFrame = CFrame.lookAt(root.Position, flatAim)
+			end
+		end
+	end
+	Interface.Update()
+end)
+
+---------------------------------------------------------------------------
+-- Input
+---------------------------------------------------------------------------
+
+local triggerHeld = false
+
+local function tryFire()
+	local _, root, hum = getCharacter()
+	if not root or not hum or hum.Health <= 0 or Interface.IsShopOpen() then
+		return
+	end
+	local aim = mouseAimPoint()
+	if aim then
+		fireRemote:FireServer(aim)
+	end
+end
+
+local WEAPON_KEYS = {
+	[Enum.KeyCode.One] = 1,
+	[Enum.KeyCode.Two] = 2,
+	[Enum.KeyCode.Three] = 3,
+	[Enum.KeyCode.Four] = 4,
+}
+
+local function weaponBySlot(slot: number): string?
+	for id, w in Config.Weapons do
+		if w.Order == slot and player:GetAttribute("Owns_" .. id) then
+			return id
+		end
+	end
+	return nil
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then
+		return
+	end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		triggerHeld = true
+		tryFire()
+	elseif input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.F then
+		if not Interface.IsShopOpen() then
+			meleeRemote:FireServer()
+		end
+	elseif input.KeyCode == Enum.KeyCode.R then
+		reloadRemote:FireServer()
+	elseif input.KeyCode == Enum.KeyCode.B then
+		Interface.ToggleShop()
+	elseif WEAPON_KEYS[input.KeyCode] then
+		local id = weaponBySlot(WEAPON_KEYS[input.KeyCode])
+		if id then
+			equipRemote:FireServer(id)
+		end
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		triggerHeld = false
+	end
+end)
+
+-- Holding the trigger keeps firing as soon as the weapon is loaded
+-- (useful with the Brace of Pistols).
+task.spawn(function()
+	while true do
+		task.wait(0.15)
+		if triggerHeld and (player:GetAttribute("Ammo") or 0) > 0 and (player:GetAttribute("ReloadEnd") or 0) == 0 then
+			tryFire()
+		end
+	end
+end)
+
+-- No jumping in a top-down shooter; free up Space.
+ContextActionService:BindActionAtPriority("BlockJump", function()
+	return Enum.ContextActionResult.Sink
+end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Space)
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000C"><Properties><string name="Name">Effects</string><ProtectedString name="Source"><![CDATA[-- Draws the effects the server reports: musket smoke, tracers, grenades,
+-- explosions and cannon fire. Everything here is local and purely cosmetic.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+local SoundService = game:GetService("SoundService")
+local RunService = game:GetService("RunService")
+
+local Effects = {}
+
+local folder = workspace:WaitForChild("Effects")
+
+-- Built-in engine sounds (always available, no uploads required).
+local SOUNDS = {
+	Musket = "rbxasset://sounds/Rocket shot.wav",
+	Slash = "rbxasset://sounds/swordslash.wav",
+	Hit = "rbxasset://sounds/collide.wav",
+}
+
+local function sound(id: string, pos: Vector3?, volume: number?, pitch: number?)
+	local s = Instance.new("Sound")
+	s.SoundId = id
+	s.Volume = volume or 0.5
+	s.PlaybackSpeed = pitch or 1
+	if pos then
+		local att = Instance.new("Attachment")
+		att.WorldPosition = pos
+		att.Parent = workspace.Terrain
+		s.RollOffMinDistance = 20
+		s.RollOffMaxDistance = 250
+		s.Parent = att
+		s:Play()
+		Debris:AddItem(att, 3)
+	else
+		s.Parent = SoundService
+		s:Play()
+		Debris:AddItem(s, 3)
+	end
+end
+
+local function basicPart(size: Vector3, color: Color3, material: Enum.Material?): Part
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Size = size
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	return p
+end
+
+local function fadeOut(p: BasePart, duration: number, grow: Vector3?)
+	local goal: { [string]: any } = { Transparency = 1 }
+	if grow then
+		goal.Size = grow
+	end
+	TweenService:Create(p, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), goal):Play()
+	Debris:AddItem(p, duration + 0.1)
+end
+
+local function smoke(pos: Vector3, size: number, duration: number)
+	local puff = basicPart(Vector3.one * size, Color3.fromRGB(225, 225, 220))
+	puff.Shape = Enum.PartType.Ball
+	puff.Transparency = 0.25
+	puff.Position = pos
+	puff.Parent = folder
+	fadeOut(puff, duration, Vector3.one * size * 3)
+	TweenService:Create(puff, TweenInfo.new(duration), { Position = pos + Vector3.new(math.random() - 0.5, 2, math.random() - 0.5) }):Play()
+end
+
+local function tracer(from: Vector3, to: Vector3, color: Color3)
+	local length = (to - from).Magnitude
+	if length < 0.5 then
+		return
+	end
+	local line = basicPart(Vector3.new(0.15, 0.15, length), color, Enum.Material.Neon)
+	line.CFrame = CFrame.lookAt(from, to) * CFrame.new(0, 0, -length / 2)
+	line.Transparency = 0.2
+	line.Parent = folder
+	fadeOut(line, 0.18)
+end
+
+local function shot(from: Vector3, ends: { Vector3 }, team: string)
+	local flash = basicPart(Vector3.one * 1.2, Color3.fromRGB(255, 200, 90), Enum.Material.Neon)
+	flash.Shape = Enum.PartType.Ball
+	flash.Position = from
+	flash.Parent = folder
+	fadeOut(flash, 0.08)
+	smoke(from, 2, 1.4)
+	local color = if team == "Red" then Color3.fromRGB(255, 170, 120) else Color3.fromRGB(255, 240, 180)
+	for _, e in ends do
+		tracer(from, e, color)
+	end
+	sound(SOUNDS.Musket, from, 0.6, 0.75 + math.random() * 0.2)
+end
+
+local function hit(pos: Vector3, flesh: boolean)
+	local color = if flesh then Color3.fromRGB(150, 20, 20) else Color3.fromRGB(150, 130, 110)
+	for _ = 1, 3 do
+		local bit = basicPart(Vector3.one * 0.4, color)
+		bit.Position = pos
+		bit.Parent = folder
+		local offset = Vector3.new(math.random() - 0.5, math.random() * 0.8, math.random() - 0.5) * 3
+		TweenService:Create(bit, TweenInfo.new(0.35), { Position = pos + offset, Transparency = 1 }):Play()
+		Debris:AddItem(bit, 0.4)
+	end
+end
+
+local function marker(pos: Vector3, radius: number, duration: number)
+	local ring = basicPart(Vector3.new(0.2, radius * 2, radius * 2), Color3.fromRGB(255, 40, 30), Enum.Material.Neon)
+	ring.Shape = Enum.PartType.Cylinder
+	ring.CFrame = CFrame.new(pos.X, 0.25, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+	ring.Transparency = 0.75
+	ring.Parent = folder
+	-- Pulse while counting down.
+	TweenService:Create(ring, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = 0.5 }):Play()
+	Debris:AddItem(ring, duration)
+end
+
+local function cannonWarn(from: Vector3, to: Vector3, duration: number)
+	local length = (to - from).Magnitude
+	local line = basicPart(Vector3.new(3, 0.1, length), Color3.fromRGB(255, 40, 30), Enum.Material.Neon)
+	line.CFrame = CFrame.lookAt(from, to) * CFrame.new(0, 0, -length / 2)
+	line.Transparency = 0.8
+	line.Parent = folder
+	TweenService:Create(line, TweenInfo.new(duration, Enum.EasingStyle.Linear), { Transparency = 0.45 }):Play()
+	Debris:AddItem(line, duration)
+end
+
+local function projectile(from: Vector3, to: Vector3, duration: number, size: number, arc: number)
+	local ball = basicPart(Vector3.one * size, Color3.fromRGB(30, 30, 30), Enum.Material.Metal)
+	ball.Shape = Enum.PartType.Ball
+	ball.Position = from
+	ball.Parent = folder
+	local start = os.clock()
+	local conn
+	conn = RunService.RenderStepped:Connect(function()
+		local t = math.min(1, (os.clock() - start) / duration)
+		local pos = from:Lerp(to, t) + Vector3.new(0, math.sin(t * math.pi) * arc, 0)
+		ball.Position = pos
+		if t >= 1 then
+			conn:Disconnect()
+			ball:Destroy()
+		end
+	end)
+end
+
+local function explosion(pos: Vector3, radius: number)
+	local e = Instance.new("Explosion")
+	e.Position = pos
+	e.BlastRadius = radius
+	e.BlastPressure = 0
+	e.DestroyJointRadiusPercent = 0
+	e.Parent = folder
+	for _ = 1, 3 do
+		smoke(pos + Vector3.new(math.random() - 0.5, 1, math.random() - 0.5) * radius * 0.4, radius * 0.5, 2)
+	end
+end
+
+local function slash(pos: Vector3, dir: Vector3)
+	local arc = basicPart(Vector3.new(6, 0.2, 1), Color3.fromRGB(240, 240, 255), Enum.Material.Neon)
+	arc.CFrame = CFrame.lookAt(pos, pos + dir) * CFrame.new(0, 0.5, -3)
+	arc.Transparency = 0.3
+	arc.Parent = folder
+	fadeOut(arc, 0.2)
+	sound(SOUNDS.Slash, pos, 0.5)
+end
+
+function Effects.Init()
+	local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Effect") :: RemoteEvent
+	remote.OnClientEvent:Connect(function(kind: string, ...)
+		if kind == "Shot" then
+			shot(...)
+		elseif kind == "Hit" then
+			hit(...)
+		elseif kind == "Grenade" then
+			local from, to, duration = ...
+			projectile(from, to, duration, 0.9, 10)
+		elseif kind == "Cannonball" then
+			local from, to, duration = ...
+			projectile(from, to, duration, 1.3, 0)
+			sound(SOUNDS.Musket, from, 1, 0.4)
+		elseif kind == "Explosion" then
+			explosion(...)
+		elseif kind == "Marker" then
+			marker(...)
+		elseif kind == "CannonWarn" then
+			cannonWarn(...)
+		elseif kind == "Slash" then
+			slash(...)
+		end
+	end)
+end
+
+return Effects
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000D"><Properties><string name="Name">Interface</string><ProtectedString name="Source"><![CDATA[-- HUD (health, ammo, wave info, powder stores), announcements, crosshair,
+-- and the between-wave shop. Built entirely in code.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+
+local player = Players.LocalPlayer
+local gameState = ReplicatedStorage:WaitForChild("GameState")
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+
+local Interface = {}
+
+local PARCHMENT = Color3.fromRGB(236, 224, 196)
+local INK = Color3.fromRGB(45, 32, 22)
+local RED = Color3.fromRGB(190, 40, 35)
+local BLUE = Color3.fromRGB(40, 70, 140)
+local FONT = Enum.Font.Antique
+local FONT_BOLD = Enum.Font.Garamond
+
+local function new(className: string, props: { [string]: any }, children: { Instance }?): any
+	local inst = Instance.new(className)
+	for k, v in props do
+		if k ~= "Parent" then
+			(inst :: any)[k] = v
+		end
+	end
+	if children then
+		for _, c in children do
+			c.Parent = inst
+		end
+	end
+	if props.Parent then
+		inst.Parent = props.Parent
+	end
+	return inst
+end
+
+local function corner(radius: number?): UICorner
+	return new("UICorner", { CornerRadius = UDim.new(0, radius or 6) })
+end
+
+local function stroke(color: Color3?, thickness: number?): UIStroke
+	return new("UIStroke", { Color = color or INK, Thickness = thickness or 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+end
+
+local function label(props: { [string]: any }): TextLabel
+	local base = {
+		BackgroundTransparency = 1,
+		Font = FONT,
+		TextColor3 = INK,
+		TextScaled = true,
+	}
+	for k, v in props do
+		base[k] = v
+	end
+	return new("TextLabel", base)
+end
+
+local function bar(parent: Instance, position: UDim2, size: UDim2, color: Color3, title: string): (Frame, TextLabel)
+	local back = new("Frame", {
+		Parent = parent,
+		Position = position,
+		Size = size,
+		BackgroundColor3 = Color3.fromRGB(40, 30, 25),
+	}, { corner(4), stroke(INK, 2) })
+	local fill = new("Frame", {
+		Parent = back,
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+	}, { corner(4) })
+	local text = label({
+		Parent = back,
+		Size = UDim2.fromScale(1, 1),
+		Text = title,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextStrokeTransparency = 0.3,
+		Font = FONT_BOLD,
+		ZIndex = 2,
+	})
+	return fill, text
+end
+
+local function formatTime(seconds: number): string
+	seconds = math.max(0, math.ceil(seconds))
+	return ("%d:%02d"):format(seconds // 60, seconds % 60)
+end
+
+---------------------------------------------------------------------------
+-- Build
+---------------------------------------------------------------------------
+
+local gui: ScreenGui
+local refs: { [string]: any } = {}
+local shopOpen = false
+local shopFrame: Frame
+local shopStatus: TextLabel
+local shopRefreshers: { () -> () } = {}
+
+local function buildHud()
+	gui = new("ScreenGui", {
+		Name = "RedcoatHUD",
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		Parent = player:WaitForChild("PlayerGui"),
+	})
+
+	-- Top banner: wave + phase + stores.
+	local top = new("Frame", {
+		Parent = gui,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 44),
+		Size = UDim2.fromOffset(420, 92),
+		BackgroundColor3 = PARCHMENT,
+		BackgroundTransparency = 0.05,
+	}, { corner(8), stroke(INK, 3) })
+	refs.WaveLabel = label({ Parent = top, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -24, 0, 30), Font = FONT_BOLD, Text = "Redcoat Invasion" })
+	refs.PhaseLabel = label({ Parent = top, Position = UDim2.fromOffset(12, 36), Size = UDim2.new(1, -24, 0, 20), Text = "" })
+	refs.StoresFill, refs.StoresText = bar(top, UDim2.fromOffset(16, 62), UDim2.new(1, -32, 0, 20), Color3.fromRGB(200, 140, 50), "Powder Stores")
+
+	-- Bottom left: health + money.
+	local status = new("Frame", {
+		Parent = gui,
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 16, 1, -16),
+		Size = UDim2.fromOffset(280, 92),
+		BackgroundColor3 = PARCHMENT,
+		BackgroundTransparency = 0.05,
+	}, { corner(8), stroke(INK, 3) })
+	refs.HealthFill, refs.HealthText = bar(status, UDim2.fromOffset(12, 12), UDim2.new(1, -24, 0, 26), RED, "Health")
+	refs.MoneyLabel = label({ Parent = status, Position = UDim2.fromOffset(12, 46), Size = UDim2.new(0.5, -12, 0, 34), Font = FONT_BOLD, TextXAlignment = Enum.TextXAlignment.Left, Text = "$0" })
+	refs.AlliesLabel = label({ Parent = status, Position = UDim2.new(0.5, 0, 0, 50), Size = UDim2.new(0.5, -12, 0, 26), TextXAlignment = Enum.TextXAlignment.Right, Text = "" })
+
+	-- Bottom right: weapon + ammo + reload.
+	local weapon = new("Frame", {
+		Parent = gui,
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -16, 1, -16),
+		Size = UDim2.fromOffset(300, 120),
+		BackgroundColor3 = PARCHMENT,
+		BackgroundTransparency = 0.05,
+	}, { corner(8), stroke(INK, 3) })
+	refs.WeaponLabel = label({ Parent = weapon, Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, -24, 0, 30), Font = FONT_BOLD, TextXAlignment = Enum.TextXAlignment.Left, Text = "Musket" })
+	refs.AmmoRow = new("Frame", { Parent = weapon, Position = UDim2.fromOffset(12, 42), Size = UDim2.new(1, -24, 0, 22), BackgroundTransparency = 1 }, {
+		new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6) }),
+	})
+	refs.ReloadFill, refs.ReloadText = bar(weapon, UDim2.fromOffset(12, 70), UDim2.new(1, -24, 0, 18), Color3.fromRGB(90, 90, 90), "")
+	refs.SlotsLabel = label({ Parent = weapon, Position = UDim2.fromOffset(12, 94), Size = UDim2.new(1, -24, 0, 18), TextXAlignment = Enum.TextXAlignment.Left, Text = "" })
+
+	-- Controls hint.
+	label({
+		Parent = gui,
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -8),
+		Size = UDim2.fromOffset(640, 18),
+		TextColor3 = Color3.new(1, 1, 1),
+		TextStrokeTransparency = 0.4,
+		Text = "WASD move  |  Mouse aim  |  Click fire  |  R reload  |  F / Right-click hatchet  |  1-4 weapons  |  B shop",
+	})
+
+	-- Announcement banner.
+	refs.Banner = label({
+		Parent = gui,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.3),
+		Size = UDim2.fromOffset(900, 60),
+		Font = FONT_BOLD,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextStrokeTransparency = 0,
+		TextTransparency = 1,
+		TextStrokeColor3 = INK,
+		Text = "",
+	})
+
+	-- Death notice.
+	refs.DeadLabel = label({
+		Parent = gui,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.45),
+		Size = UDim2.fromOffset(700, 40),
+		Font = FONT_BOLD,
+		TextColor3 = Color3.fromRGB(255, 120, 110),
+		TextStrokeTransparency = 0,
+		Text = "You have fallen! You will rejoin the fight next wave.",
+		Visible = false,
+	})
+
+	-- Crosshair that follows the mouse.
+	refs.Crosshair = new("Frame", {
+		Parent = gui,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(26, 26),
+		BackgroundTransparency = 1,
+		ZIndex = 10,
+	}, {
+		corner(13),
+		new("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 2 }),
+		new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(4, 4), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0 }),
+	})
+	refs.CrossReload = new("Frame", {
+		Parent = refs.Crosshair,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 1, 4),
+		Size = UDim2.fromOffset(0, 4),
+		BackgroundColor3 = Color3.fromRGB(255, 220, 120),
+		BorderSizePixel = 0,
+	})
+end
+
+---------------------------------------------------------------------------
+-- Shop
+---------------------------------------------------------------------------
+
+local purchaseRemote = remotes:WaitForChild("Purchase") :: RemoteFunction
+local readyRemote = remotes:WaitForChild("Ready") :: RemoteEvent
+
+local function shopButton(parent: Instance, order: number, title: string, desc: string, onClick: () -> (), refresh: (TextButton, TextLabel) -> ())
+	local row = new("Frame", {
+		Parent = parent,
+		LayoutOrder = order,
+		Size = UDim2.new(1, -8, 0, 52),
+		BackgroundColor3 = Color3.fromRGB(246, 238, 218),
+	}, { corner(6), stroke(Color3.fromRGB(150, 130, 100), 1) })
+	label({ Parent = row, Position = UDim2.fromOffset(10, 4), Size = UDim2.new(1, -140, 0, 24), Font = FONT_BOLD, TextXAlignment = Enum.TextXAlignment.Left, Text = title })
+	local info = label({ Parent = row, Position = UDim2.fromOffset(10, 28), Size = UDim2.new(1, -140, 0, 18), TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(90, 70, 50), Text = desc })
+	local button = new("TextButton", {
+		Parent = row,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -8, 0.5, 0),
+		Size = UDim2.fromOffset(118, 36),
+		BackgroundColor3 = BLUE,
+		TextColor3 = Color3.new(1, 1, 1),
+		Font = FONT_BOLD,
+		TextScaled = true,
+		AutoButtonColor = true,
+		Text = "",
+	}, { corner(6), new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4) }) })
+	button.Activated:Connect(onClick)
+	local function doRefresh()
+		refresh(button, info)
+	end
+	table.insert(shopRefreshers, doRefresh)
+	doRefresh()
+end
+
+local function setStatus(text: string, good: boolean)
+	shopStatus.Text = text
+	shopStatus.TextColor3 = if good then Color3.fromRGB(40, 110, 40) else RED
+end
+
+local function buy(kind: string, id: string?)
+	local ok, msg = purchaseRemote:InvokeServer(kind, id)
+	setStatus(msg or "", ok)
+	for _, r in shopRefreshers do
+		r()
+	end
+end
+
+local function section(parent: Instance, order: number, title: string)
+	label({ Parent = parent, LayoutOrder = order, Size = UDim2.new(1, -8, 0, 28), Font = FONT_BOLD, TextColor3 = RED, TextXAlignment = Enum.TextXAlignment.Left, Text = title })
+end
+
+local function sortedKeys<T>(t: { [string]: T }, orderOf: (T) -> number): { string }
+	local keys = {}
+	for k in t do
+		table.insert(keys, k)
+	end
+	table.sort(keys, function(a, b)
+		return orderOf(t[a]) < orderOf(t[b])
+	end)
+	return keys
+end
+
+local function buildShop()
+	shopFrame = new("Frame", {
+		Parent = gui,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.55),
+		Size = UDim2.new(0, 560, 0.62, 0),
+		BackgroundColor3 = PARCHMENT,
+		Visible = false,
+		ZIndex = 5,
+	}, { corner(10), stroke(INK, 4) })
+	label({ Parent = shopFrame, Position = UDim2.fromOffset(16, 8), Size = UDim2.new(1, -32, 0, 40), Font = FONT_BOLD, Text = "Quartermaster" })
+	shopStatus = label({ Parent = shopFrame, Position = UDim2.fromOffset(16, 48), Size = UDim2.new(1, -32, 0, 20), Text = "Spend your dollars before the Regulars arrive." })
+
+	local list = new("ScrollingFrame", {
+		Parent = shopFrame,
+		Position = UDim2.fromOffset(16, 74),
+		Size = UDim2.new(1, -32, 1, -140),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 8,
+		ScrollBarImageColor3 = INK,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, { new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }) })
+
+	local order = 0
+	local function nextOrder()
+		order += 1
+		return order
+	end
+
+	section(list, nextOrder(), "Firearms")
+	for _, id in sortedKeys(Config.Weapons, function(w)
+		return w.Order
+	end) do
+		local w = Config.Weapons[id]
+		local desc = ("%s  Dmg %d, reload %.1fs"):format(w.Description, w.Damage, w.ReloadTime)
+		shopButton(list, nextOrder(), w.Name, desc, function()
+			buy("Weapon", id)
+		end, function(button)
+			if player:GetAttribute("Weapon") == id then
+				button.Text = "Equipped"
+				button.BackgroundColor3 = Color3.fromRGB(110, 110, 110)
+			elseif player:GetAttribute("Owns_" .. id) then
+				button.Text = "Equip"
+				button.BackgroundColor3 = BLUE
+			else
+				button.Text = "$" .. w.Price
+				button.BackgroundColor3 = if (player:GetAttribute("Money") or 0) >= w.Price then Color3.fromRGB(50, 120, 50) else Color3.fromRGB(140, 90, 80)
+			end
+		end)
+	end
+
+	section(list, nextOrder(), "Training")
+	for _, id in sortedKeys(Config.Upgrades, function(u)
+		return u.Order
+	end) do
+		local up = Config.Upgrades[id]
+		shopButton(list, nextOrder(), up.Name, up.Description, function()
+			buy("Upgrade", id)
+		end, function(button, info)
+			local level = player:GetAttribute("Up_" .. id) or 0
+			info.Text = ("%s  (level %d/%d)"):format(up.Description, level, up.MaxLevel)
+			if level >= up.MaxLevel then
+				button.Text = "Maxed"
+				button.BackgroundColor3 = Color3.fromRGB(110, 110, 110)
+			else
+				local cost = up.BaseCost * (level + 1)
+				button.Text = "$" .. cost
+				button.BackgroundColor3 = if (player:GetAttribute("Money") or 0) >= cost then Color3.fromRGB(50, 120, 50) else Color3.fromRGB(140, 90, 80)
+			end
+		end)
+	end
+
+	section(list, nextOrder(), "Reinforcements")
+	shopButton(list, nextOrder(), "Hire a Minuteman", "A militiaman follows you and fires on the Regulars.", function()
+		buy("Ally")
+	end, function(button, info)
+		local count = player:GetAttribute("Allies") or 0
+		info.Text = ("Follows you and fires on the Regulars.  (%d/%d)"):format(count, Config.Allies.MaxPerPlayer)
+		button.Text = if count >= Config.Allies.MaxPerPlayer then "Full" else "$" .. Config.Allies.HireCost
+		button.BackgroundColor3 = if count < Config.Allies.MaxPerPlayer and (player:GetAttribute("Money") or 0) >= Config.Allies.HireCost
+			then Color3.fromRGB(50, 120, 50)
+			else Color3.fromRGB(140, 90, 80)
+	end)
+	shopButton(list, nextOrder(), "Repair the Powder Stores", ("Restores %d health to the stores."):format(Config.Stores.RepairAmount), function()
+		buy("Repair")
+	end, function(button)
+		button.Text = "$" .. Config.Stores.RepairCost
+		local damaged = (gameState:GetAttribute("StoresHealth") or 0) < (gameState:GetAttribute("StoresMax") or 0)
+		button.BackgroundColor3 = if damaged and (player:GetAttribute("Money") or 0) >= Config.Stores.RepairCost
+			then Color3.fromRGB(50, 120, 50)
+			else Color3.fromRGB(140, 90, 80)
+	end)
+
+	-- Footer buttons.
+	local readyButton = new("TextButton", {
+		Parent = shopFrame,
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -16, 1, -12),
+		Size = UDim2.fromOffset(200, 44),
+		BackgroundColor3 = RED,
+		TextColor3 = Color3.new(1, 1, 1),
+		Font = FONT_BOLD,
+		TextScaled = true,
+		Text = "Ready for battle!",
+	}, { corner(6), new("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6) }) })
+	readyButton.Activated:Connect(function()
+		readyRemote:FireServer()
+		readyButton.Text = "Waiting for others..."
+	end)
+	player:GetAttributeChangedSignal("Ready"):Connect(function()
+		if not player:GetAttribute("Ready") then
+			readyButton.Text = "Ready for battle!"
+		end
+	end)
+
+	local closeButton = new("TextButton", {
+		Parent = shopFrame,
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 16, 1, -12),
+		Size = UDim2.fromOffset(120, 44),
+		BackgroundColor3 = Color3.fromRGB(110, 100, 90),
+		TextColor3 = Color3.new(1, 1, 1),
+		Font = FONT_BOLD,
+		TextScaled = true,
+		Text = "Close (B)",
+	}, { corner(6), new("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6) }) })
+	closeButton.Activated:Connect(function()
+		Interface.SetShopOpen(false)
+	end)
+
+	for _, attr in { "Money", "Weapon", "Allies" } do
+		player:GetAttributeChangedSignal(attr):Connect(function()
+			for _, r in shopRefreshers do
+				r()
+			end
+		end)
+	end
+end
+
+function Interface.SetShopOpen(open: boolean)
+	local phase = gameState:GetAttribute("Phase")
+	if open and phase ~= "Intermission" and phase ~= "Waiting" then
+		Interface.Announce("The quartermaster only trades between waves.", RED)
+		return
+	end
+	shopOpen = open
+	shopFrame.Visible = open
+	if open then
+		for _, r in shopRefreshers do
+			r()
+		end
+	end
+end
+
+function Interface.ToggleShop()
+	Interface.SetShopOpen(not shopOpen)
+end
+
+function Interface.IsShopOpen(): boolean
+	return shopOpen
+end
+
+---------------------------------------------------------------------------
+-- Updates
+---------------------------------------------------------------------------
+
+local bannerToken = 0
+function Interface.Announce(text: string, color: Color3?)
+	bannerToken += 1
+	local token = bannerToken
+	local banner = refs.Banner :: TextLabel
+	banner.Text = text
+	banner.TextColor3 = color or Color3.new(1, 1, 1)
+	banner.TextTransparency = 0
+	banner.TextStrokeTransparency = 0
+	task.delay(3.5, function()
+		if token == bannerToken then
+			TweenService:Create(banner, TweenInfo.new(0.8), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+		end
+	end)
+end
+
+local lastAmmo = -1
+local lastCapacity = -1
+local function refreshAmmo()
+	local ammo = player:GetAttribute("Ammo") or 0
+	local capacity = player:GetAttribute("Capacity") or 1
+	if ammo == lastAmmo and capacity == lastCapacity then
+		return
+	end
+	lastAmmo, lastCapacity = ammo, capacity
+	for _, c in refs.AmmoRow:GetChildren() do
+		if c:IsA("Frame") then
+			c:Destroy()
+		end
+	end
+	for i = 1, capacity do
+		new("Frame", {
+			Parent = refs.AmmoRow,
+			Size = UDim2.fromOffset(16, 16),
+			BackgroundColor3 = if i <= ammo then Color3.fromRGB(60, 60, 60) else Color3.fromRGB(200, 190, 170),
+		}, { corner(8), stroke(INK, 1) })
+	end
+end
+
+function Interface.Update()
+	local t = workspace:GetServerTimeNow()
+	local phase = gameState:GetAttribute("Phase")
+	local wave = gameState:GetAttribute("Wave") or 0
+	local final = gameState:GetAttribute("FinalWave") or Config.Rounds.FinalWave
+	local phaseEnd = gameState:GetAttribute("PhaseEnd") or 0
+
+	if phase == "Intermission" then
+		refs.WaveLabel.Text = ("Wave %d of %d approaching"):format(wave + 1, final)
+		refs.PhaseLabel.Text = ("Prepare! The Regulars march in %s  -  press B to shop"):format(formatTime(phaseEnd - t))
+	elseif phase == "Wave" then
+		local name = gameState:GetAttribute("WaveName") or ""
+		refs.WaveLabel.Text = ("Wave %d of %d%s"):format(wave, final, if name ~= "" then ": " .. name else "")
+		refs.PhaseLabel.Text = ("Redcoats remaining: %d"):format(gameState:GetAttribute("EnemiesLeft") or 0)
+	elseif phase == "GameOver" then
+		refs.WaveLabel.Text = "Defeat"
+		refs.PhaseLabel.Text = ("A new battle begins in %s"):format(formatTime(phaseEnd - t))
+	elseif phase == "Victory" then
+		refs.WaveLabel.Text = "Victory!"
+		refs.PhaseLabel.Text = ("A new battle begins in %s"):format(formatTime(phaseEnd - t))
+	else
+		refs.WaveLabel.Text = "Redcoat Invasion"
+		refs.PhaseLabel.Text = "Waiting for militia..."
+	end
+
+	local storesHp = gameState:GetAttribute("StoresHealth") or 0
+	local storesMax = gameState:GetAttribute("StoresMax") or 1
+	refs.StoresFill.Size = UDim2.fromScale(math.clamp(storesHp / storesMax, 0, 1), 1)
+	refs.StoresText.Text = ("Powder Stores  %d / %d"):format(storesHp, storesMax)
+
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local alive = hum ~= nil and hum.Health > 0
+	if hum then
+		refs.HealthFill.Size = UDim2.fromScale(math.clamp(hum.Health / hum.MaxHealth, 0, 1), 1)
+		refs.HealthText.Text = ("Health  %d / %d"):format(math.max(0, math.ceil(hum.Health)), hum.MaxHealth)
+	else
+		refs.HealthFill.Size = UDim2.fromScale(0, 1)
+		refs.HealthText.Text = "Health"
+	end
+	refs.DeadLabel.Visible = not alive and phase == "Wave"
+
+	refs.MoneyLabel.Text = "$" .. (player:GetAttribute("Money") or 0)
+	local allies = player:GetAttribute("Allies") or 0
+	refs.AlliesLabel.Text = if allies > 0 then ("Minutemen: %d"):format(allies) else ""
+
+	local weaponId = player:GetAttribute("Weapon") or "Musket"
+	local weapon = Config.Weapons[weaponId]
+	refs.WeaponLabel.Text = if weapon then weapon.Name else weaponId
+	refreshAmmo()
+
+	local reloadEnd = player:GetAttribute("ReloadEnd") or 0
+	local duration = player:GetAttribute("ReloadDuration") or 1
+	if reloadEnd > t then
+		local progress = 1 - (reloadEnd - t) / duration
+		refs.ReloadFill.Size = UDim2.fromScale(math.clamp(progress, 0, 1), 1)
+		refs.ReloadFill.BackgroundColor3 = Color3.fromRGB(220, 170, 60)
+		refs.ReloadText.Text = "Loading..."
+		refs.CrossReload.Size = UDim2.fromOffset(26 * math.clamp(progress, 0, 1), 4)
+	else
+		local loaded = (player:GetAttribute("Ammo") or 0) > 0
+		refs.ReloadFill.Size = UDim2.fromScale(1, 1)
+		refs.ReloadFill.BackgroundColor3 = if loaded then Color3.fromRGB(70, 130, 70) else Color3.fromRGB(150, 60, 50)
+		refs.ReloadText.Text = if loaded then "Ready" else "Empty - press R"
+		refs.CrossReload.Size = UDim2.fromOffset(0, 4)
+	end
+
+	local slots = {}
+	for _, id in sortedKeys(Config.Weapons, function(w)
+		return w.Order
+	end) do
+		if player:GetAttribute("Owns_" .. id) then
+			table.insert(slots, ("[%d] %s"):format(Config.Weapons[id].Order, Config.Weapons[id].Name))
+		end
+	end
+	refs.SlotsLabel.Text = table.concat(slots, "   ")
+
+	local mouse = UserInputService:GetMouseLocation()
+	refs.Crosshair.Position = UDim2.fromOffset(mouse.X, mouse.Y)
+	refs.Crosshair.Visible = alive and not shopOpen
+	UserInputService.MouseIconEnabled = shopOpen or not alive
+end
+
+function Interface.Init()
+	buildHud()
+	buildShop()
+
+	local announce = remotes:WaitForChild("Announce") :: RemoteEvent
+	announce.OnClientEvent:Connect(function(text: string, color: Color3?)
+		Interface.Announce(text, color)
+	end)
+
+	gameState:GetAttributeChangedSignal("Phase"):Connect(function()
+		local phase = gameState:GetAttribute("Phase")
+		if phase == "Intermission" then
+			Interface.SetShopOpen(true)
+		elseif shopOpen then
+			Interface.SetShopOpen(false)
+		end
+	end)
+	gameState:GetAttributeChangedSignal("StoresHealth"):Connect(function()
+		for _, r in shopRefreshers do
+			r()
+		end
+	end)
+end
+
+return Interface
+]]></ProtectedString></Properties></Item></Item><Item class="StarterCharacterScripts" referent="RBX0000000F"><Properties><string name="Name">StarterCharacterScripts</string></Properties></Item></Item></roblox>
