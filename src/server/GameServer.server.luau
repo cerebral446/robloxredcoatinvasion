@@ -11,7 +11,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 -- Networking objects must exist before the other modules load.
 local remotes = Instance.new("Folder")
 remotes.Name = "Remotes"
-for _, name in { "Fire", "Reload", "Melee", "Equip", "Ready", "Effect", "Announce" } do
+for _, name in { "Fire", "Reload", "Melee", "Equip", "Ready", "Effect", "Announce", "Sprint" } do
 	local r = Instance.new("RemoteEvent")
 	r.Name = name
 	r.Parent = remotes
@@ -240,6 +240,7 @@ local function runWave(wave: number): string
 	gameState:SetAttribute("Wave", wave)
 	gameState:SetAttribute("WaveName", def.Name or "")
 	setPhase("Wave")
+	Units.SetWave(wave)
 	FX.Announce(("Wave %d%s"):format(wave, if def.Name then " - " .. def.Name else ""), Color3.fromRGB(255, 90, 80))
 
 	local queue = buildSpawnQueue(wave)

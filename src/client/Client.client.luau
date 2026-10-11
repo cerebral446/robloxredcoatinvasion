@@ -19,6 +19,7 @@ local fireRemote = remotes:WaitForChild("Fire") :: RemoteEvent
 local reloadRemote = remotes:WaitForChild("Reload") :: RemoteEvent
 local meleeRemote = remotes:WaitForChild("Melee") :: RemoteEvent
 local equipRemote = remotes:WaitForChild("Equip") :: RemoteEvent
+local sprintRemote = remotes:WaitForChild("Sprint") :: RemoteEvent
 
 -- Hide default Roblox UI we don't use.
 for _, coreType in { Enum.CoreGuiType.Backpack, Enum.CoreGuiType.Health } do
@@ -229,6 +230,28 @@ UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		triggerHeld = false
 	end
+end)
+
+-- Hold Shift to sprint (the server sets the actual walk speed).
+local sprinting = false
+local function setSprint(on: boolean)
+	if sprinting ~= on then
+		sprinting = on
+		sprintRemote:FireServer(on)
+	end
+end
+UserInputService.InputBegan:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+		setSprint(true)
+	end
+end)
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+		setSprint(false)
+	end
+end)
+UserInputService.WindowFocusReleased:Connect(function()
+	setSprint(false)
 end)
 
 -- Holding the trigger keeps firing as soon as the weapon is loaded

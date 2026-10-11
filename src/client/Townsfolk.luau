@@ -89,6 +89,8 @@ type Villager = {
 	Scale: number,
 	Facing: Vector3,
 	Anchor: Vector3?,
+	ProgressPos: Vector3?,
+	ProgressTime: number,
 }
 
 local folder: Folder
@@ -324,6 +326,8 @@ local function buildVillager(role: string, pos: Vector3): Villager
 		Scale = s,
 		Facing = Vector3.new(0, 0, -1),
 		Anchor = nil,
+		ProgressPos = nil,
+		ProgressTime = 0,
 	}
 end
 
@@ -360,6 +364,29 @@ local function blocked(pos: Vector3, dir: Vector3): boolean
 	return workspace:Raycast(Vector3.new(pos.X, 2, pos.Z), dir * 3, avoidParams) ~= nil
 end
 
+-- True if a person-sized body can walk straight from `from` to `to`.
+local function clearPath(from: Vector3, to: Vector3): boolean
+	local origin = Vector3.new(from.X, 2, from.Z)
+	local delta = Vector3.new(to.X, 2, to.Z) - origin
+	if delta.Magnitude < 0.5 then
+		return true
+	end
+	return workspace:Spherecast(origin, 1.1, delta, avoidParams) == nil
+end
+
+-- Pick a destination we can actually reach in a straight line.
+local function chooseTarget(from: Vector3, make: () -> Vector3): Vector3?
+	for _ = 1, 10 do
+		local raw = make()
+		-- Stay inside the village, behind the stockade.
+		local candidate = Vector3.new(math.clamp(raw.X, -90, 90), 0, math.clamp(raw.Z, 93, 166))
+		if clearPath(from, candidate) then
+			return candidate
+		end
+	end
+	return nil
+end
+
 local function walk(v: Villager, dt: number, speed: number)
 	local pos = v.Root.Position
 	local target = v.Target :: Vector3
@@ -369,6 +396,19 @@ local function walk(v: Villager, dt: number, speed: number)
 		return
 	end
 	local dir = delta.Unit
+
+	-- Give up on a destination if we've barely moved for a while.
+	local t = os.clock()
+	if not v.ProgressPos or t - v.ProgressTime > 1.5 then
+		if v.ProgressPos and (flat(pos - v.ProgressPos)).Magnitude < 1 and t - v.ProgressTime < 3 then
+			v.Target = nil
+			v.ProgressPos = nil
+			return
+		end
+		v.ProgressPos = pos
+		v.ProgressTime = t
+	end
+
 	if blocked(pos, dir) then
 		-- Try to sidestep; give up on this destination if boxed in.
 		local side = Vector3.new(-dir.Z, 0, dir.X)
@@ -451,13 +491,21 @@ local function updateVillager(v: Villager, dt: number, panic: boolean)
 		if v.Target then
 			walk(v, dt, speed)
 		elseif t >= v.WaitUntil then
-			if panic and role ~= "Crier" then
-				v.Target = pick(SHELTER) + Vector3.new(math.random(-4, 4), 0, math.random(-3, 3))
-			elseif v.Anchor then
-				v.Target = v.Anchor + Vector3.new(math.random(-10, 10), 0, math.random(-10, 10))
-			else
-				v.Target = pick(WAYPOINTS) + Vector3.new(math.random(-4, 4), 0, math.random(-4, 4))
-			end
+			local here = v.Root.Position
+			local anchor = v.Anchor
+			v.Target = chooseTarget(here, function()
+				if panic and role ~= "Crier" then
+					return pick(SHELTER) + Vector3.new(math.random(-4, 4), 0, math.random(-3, 3))
+				elseif anchor then
+					return anchor + Vector3.new(math.random(-10, 10), 0, math.random(-10, 10))
+				end
+				-- Mostly stroll to nearby spots; sometimes cross town.
+				if math.random() < 0.6 then
+					return here + Vector3.new(math.random(-14, 14), 0, math.random(-14, 14))
+				end
+				return pick(WAYPOINTS) + Vector3.new(math.random(-4, 4), 0, math.random(-4, 4))
+			end)
+			v.ProgressPos = nil
 			v.WaitUntil = t + (if panic then 0.5 + math.random() * 1.5 else 2 + math.random() * 6)
 		else
 			standStill(v)

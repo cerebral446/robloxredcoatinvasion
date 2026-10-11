@@ -19,6 +19,7 @@ type Data = {
 	ReloadToken: number,
 	Reloading: boolean,
 	Spawning: boolean,
+	Sprinting: boolean,
 	LastFire: number,
 	LastMelee: number,
 	Upgrades: { [string]: number },
@@ -58,10 +59,6 @@ local function reloadTime(d: Data, weapon: Config.WeaponDef): number
 	return weapon.ReloadTime * math.max(0.3, 1 - upgradeValue(d, "Reload"))
 end
 
-local function walkSpeed(d: Data): number
-	return Config.Player.WalkSpeed + upgradeValue(d, "Speed")
-end
-
 local function sync(player: Player)
 	local d = data[player]
 	if not d then
@@ -95,7 +92,11 @@ local function setSpeed(player: Player)
 	local d = data[player]
 	local _, hum = getRoot(player)
 	if d and hum then
-		hum.WalkSpeed = if d.Reloading then Config.Player.ReloadWalkSpeed + upgradeValue(d, "Speed") else walkSpeed(d)
+		local p = Config.Player
+		local base = if d.Reloading
+			then (if d.Sprinting then p.ReloadSprintSpeed else p.ReloadWalkSpeed)
+			else (if d.Sprinting then p.SprintSpeed else p.WalkSpeed)
+		hum.WalkSpeed = base + upgradeValue(d, "Speed")
 	end
 end
 
@@ -685,6 +686,7 @@ function PlayerManager.Reset(player: Player)
 		ReloadToken = 0,
 		Reloading = false,
 		Spawning = false,
+		Sprinting = false,
 		LastFire = 0,
 		LastMelee = 0,
 		Upgrades = {},
@@ -700,6 +702,8 @@ function PlayerManager.ResetAll()
 end
 
 local function onPlayerAdded(player: Player)
+	-- Shift is sprint, so turn off Roblox's Shift-lock camera toggle.
+	player.DevEnableMouseLock = false
 	local stats = Instance.new("Folder")
 	stats.Name = "leaderstats"
 	local kills = Instance.new("IntValue")
@@ -723,6 +727,14 @@ function PlayerManager.Init(state: Instance, shopOpen: () -> boolean)
 	local meleeRemote = remotes:WaitForChild("Melee") :: RemoteEvent
 	local equipRemote = remotes:WaitForChild("Equip") :: RemoteEvent
 	local purchaseRemote = remotes:WaitForChild("Purchase") :: RemoteFunction
+	local sprintRemote = remotes:WaitForChild("Sprint") :: RemoteEvent
+	sprintRemote.OnServerEvent:Connect(function(player, on)
+		local d = data[player]
+		if d and typeof(on) == "boolean" and d.Sprinting ~= on then
+			d.Sprinting = on
+			setSpeed(player)
+		end
+	end)
 	fireRemote.OnServerEvent:Connect(fire)
 	reloadRemote.OnServerEvent:Connect(startReload)
 	meleeRemote.OnServerEvent:Connect(melee)

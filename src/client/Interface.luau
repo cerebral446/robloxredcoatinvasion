@@ -157,10 +157,10 @@ local function buildHud()
 		Parent = gui,
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -8),
-		Size = UDim2.fromOffset(640, 18),
+		Size = UDim2.fromOffset(780, 18),
 		TextColor3 = Color3.new(1, 1, 1),
 		TextStrokeTransparency = 0.4,
-		Text = "WASD move  |  Mouse aim  |  Click fire  |  R reload  |  F / Right-click hatchet  |  1-4 weapons  |  B shop",
+		Text = "WASD move  |  Shift sprint  |  Mouse aim  |  Click fire  |  R reload  |  F / Right-click hatchet  |  1-4 weapons  |  B shop",
 	})
 
 	-- Announcement banner.

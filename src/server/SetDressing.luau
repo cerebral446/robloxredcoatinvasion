@@ -112,6 +112,7 @@ local function lantern(pos: Vector3, folder: Instance)
 		Position = pos + Vector3.new(0, 4, 0),
 		Color = DARK_WOOD,
 		Material = Enum.Material.Wood,
+		CanCollide = false, -- don't snag players in the square
 	}, folder)
 	part({
 		Name = "LanternArm",
@@ -119,6 +120,7 @@ local function lantern(pos: Vector3, folder: Instance)
 		Position = pos + Vector3.new(0, 7.8, -0.7),
 		Color = IRON,
 		Material = Enum.Material.Metal,
+		CanCollide = false,
 	}, folder)
 	part({
 		Name = "LanternCap",
@@ -126,6 +128,7 @@ local function lantern(pos: Vector3, folder: Instance)
 		Position = pos + Vector3.new(0, 7.6, -1.3),
 		Color = IRON,
 		Material = Enum.Material.Metal,
+		CanCollide = false,
 	}, folder)
 	local glass = part({
 		Name = "Lantern",
@@ -134,6 +137,7 @@ local function lantern(pos: Vector3, folder: Instance)
 		Color = Color3.fromRGB(255, 200, 110),
 		Material = Enum.Material.Neon,
 		Transparency = 0.15,
+		CanCollide = false,
 	}, folder)
 	flameLight(glass, 1.6, 16)
 end

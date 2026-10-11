@@ -50,7 +50,28 @@ export type Unit = {
 	ScatterUntil: number?,
 	ScatterDir: Vector3?,
 	NextBayonet: number?,
+	StuckPos: Vector3?,
+	StuckTime: number?,
+	StuckCount: number?,
+	LastMoveTime: number?,
+	DetourDir: Vector3?,
+	DetourUntil: number?,
 }
+
+-- Redcoat strength for the current wave (see Config.GetDifficulty).
+local difficulty = { Damage = 1, Spread = 1, Reload = 1, Health = 1, AimBonus = 0 }
+
+local function damageMult(unit: Unit): number
+	return if unit.Team == "Red" then difficulty.Damage else 1
+end
+
+local function reloadMult(unit: Unit): number
+	return if unit.Team == "Red" then difficulty.Reload else 1
+end
+
+local function aimTimeFor(unit: Unit): number
+	return unit.Def.AimTime + (if unit.Team == "Red" and unit.Def.AimTime > 0 then difficulty.AimBonus else 0)
+end
 
 local units: { Unit } = {}
 local byModel: { [Model]: Unit } = {}
@@ -543,6 +564,10 @@ function Units.Spawn(kind: string, position: Vector3, facing: Vector3, owner: Pl
 	end
 
 	unit.Owner = owner
+	if def.Team == "Red" then
+		unit.MaxHealth = math.max(1, math.floor(def.Health * difficulty.Health))
+		unit.Health = unit.MaxHealth
+	end
 	-- Stagger first shots so a fresh wave doesn't fire in perfect unison.
 	unit.NextAttack = now() + 1 + math.random() * 2
 	unit.Model:SetAttribute("Team", def.Team)
@@ -831,14 +856,14 @@ end
 
 local function fireMusket(unit: Unit)
 	local def = unit.Def
-	local dir = rotateY(unit.AimDir, (math.random() * 2 - 1) * def.Spread)
+	local dir = rotateY(unit.AimDir, (math.random() * 2 - 1) * def.Spread * (if unit.Team == "Red" then difficulty.Spread else 1))
 	local origin = Vector3.new(unit.Root.Position.X, Config.ShotHeight, unit.Root.Position.Z) + dir * 2
 	local range = def.Range * 1.2
 	local result = workspace:Raycast(origin, dir * range, shotParamsFor(unit.Team))
 	local hitPos = origin + dir * range
 	if result then
 		hitPos = result.Position
-		local flesh = Units.ApplyHit(result.Instance, def.Damage, unit.Team, unit.Owner)
+		local flesh = Units.ApplyHit(result.Instance, def.Damage * damageMult(unit), unit.Team, unit.Owner)
 		FX.Hit(hitPos, flesh)
 	end
 	FX.Shot(origin, { hitPos }, unit.Team)
@@ -853,7 +878,7 @@ local function throwGrenade(unit: Unit)
 	FX.Grenade(from, to, flightTime)
 	task.delay(flightTime, function()
 		FX.Explosion(to, 11)
-		Units.AreaDamage(to, 11, def.Damage, "Red", 2)
+		Units.AreaDamage(to, 11, def.Damage * difficulty.Damage, "Red", 2)
 	end)
 end
 
@@ -864,11 +889,11 @@ local function sabreStrike(unit: Unit, target: Target)
 	end
 	FX.Slash(unit.Root.Position, unit.Facing)
 	if target.Kind == "Player" and target.Humanoid then
-		target.Humanoid:TakeDamage(def.Damage)
+		target.Humanoid:TakeDamage(def.Damage * difficulty.Damage)
 	elseif target.Kind == "Unit" and target.Unit then
-		Units.Damage(target.Unit, def.Damage, nil)
+		Units.Damage(target.Unit, def.Damage * difficulty.Damage, nil)
 	elseif target.Kind == "Stores" then
-		Units.DamageStores(def.Damage)
+		Units.DamageStores(def.Damage * difficulty.Damage)
 	end
 end
 
@@ -895,19 +920,19 @@ local function fireCannon(unit: Unit)
 			for _, c in livingCharacters() do
 				if not hitPlayers[c.Player] and (flat(c.Root.Position) - flat(pos)).Magnitude <= radius then
 					hitPlayers[c.Player] = true
-					c.Humanoid:TakeDamage(def.Damage)
+					c.Humanoid:TakeDamage(def.Damage * difficulty.Damage)
 					FX.Hit(c.Root.Position, true)
 				end
 			end
 			for _, u in units do
 				if not u.Dead and u.Team ~= "Red" and not hitUnits[u] and (flat(u.Root.Position) - flat(pos)).Magnitude <= radius then
 					hitUnits[u] = true
-					Units.Damage(u, def.Damage, nil)
+					Units.Damage(u, def.Damage * difficulty.Damage, nil)
 				end
 			end
 			if not hitStores and (flat(storesPosition()) - flat(pos)).Magnitude <= 9 then
 				hitStores = true
-				Units.DamageStores(def.Damage * 1.5)
+				Units.DamageStores(def.Damage * 1.5 * difficulty.Damage)
 				FX.Explosion(pos, 6)
 				break
 			end
@@ -954,7 +979,7 @@ local function executeAttack(unit: Unit)
 	elseif attack == "Cannon" then
 		fireCannon(unit)
 	end
-	local reload = def.Reload
+	local reload = def.Reload * reloadMult(unit)
 	if unit.Team == "Red" then
 		reload *= officerAura(unit.Root.Position)
 	end
@@ -993,8 +1018,43 @@ local function separation(unit: Unit): Vector3
 	return push
 end
 
+-- Detect a unit that keeps trying to walk but isn't getting anywhere (pressed
+-- against a wall or stockade) and send it on a sideways detour. Soldiers who
+-- stay stuck leave their formation rather than holding a blocked slot.
+local function checkStuck(unit: Unit, pos: Vector3, desired: Vector3)
+	local t = now()
+	if not unit.LastMoveTime or t - unit.LastMoveTime > 0.3 or not unit.StuckPos then
+		-- Just started moving again: restart the measurement.
+		unit.StuckPos = pos
+		unit.StuckTime = t
+	end
+	unit.LastMoveTime = t
+	if t - (unit.StuckTime :: number) < 1.5 then
+		return
+	end
+	if (flat(pos - (unit.StuckPos :: Vector3))).Magnitude < 1 then
+		unit.StuckCount = (unit.StuckCount or 0) + 1
+		local side = if math.random() < 0.5 then 1 else -1
+		unit.DetourDir = rotateY(desired, side * math.random(80, 130))
+		unit.DetourUntil = t + 0.8 + math.random() * 0.8
+		if unit.Group and (unit.StuckCount :: number) >= 2 then
+			removeFromGroup(unit)
+			unit.Group = nil
+			unit.SlotOffset = nil
+		end
+	else
+		unit.StuckCount = 0
+	end
+	unit.StuckPos = pos
+	unit.StuckTime = t
+end
+
 local function moveUnit(unit: Unit, desired: Vector3, speed: number, dt: number)
 	local pos = unit.Root.Position
+	checkStuck(unit, pos, desired)
+	if unit.DetourUntil and now() < unit.DetourUntil and unit.DetourDir then
+		desired = unit.DetourDir
+	end
 	local dir = steer(pos, desired)
 	local step = dir * speed * dt + separation(unit) * dt * 4
 	local newPos = clampToMap(pos + step)
@@ -1112,21 +1172,22 @@ local function updateGroup(group: any, dt: number)
 			end
 		end
 		if t >= group.NextVolley then
-			local reload = line.Reload * (if group.Officer then Config.OfficerAura.ReloadMultiplier else 1)
-			group.NextVolley = t + reload + line.AimTime
+			local reload = line.Reload * difficulty.Reload * (if group.Officer then Config.OfficerAura.ReloadMultiplier else 1)
+			local volleyAim = line.AimTime + difficulty.AimBonus
+			group.NextVolley = t + reload + volleyAim
 			group.HoldSince = t
 			for _, m in members do
 				if m.Kind == "Regular" and not m.Aiming then
 					local own = nearestHostile("Red", m.Root.Position, line.Range) or storesTarget(m.Root.Position)
 					local aimAt = if own and own.Distance <= line.Range then own else target
 					if aimAt.Distance <= line.Range * 1.15 then
-						beginAim(m, aimAt, line.AimTime)
+						beginAim(m, aimAt, volleyAim)
 					end
 				end
 			end
 			if group.Officer then
-				shout(group.Officer, "Present!", line.AimTime * 0.9)
-				task.delay(line.AimTime, function()
+				shout(group.Officer, "Present!", volleyAim * 0.9)
+				task.delay(volleyAim, function()
 					if group.Officer and not group.Officer.Dead then
 						shout(group.Officer, "FIRE!", 1)
 					end
@@ -1154,7 +1215,7 @@ local function updateFormationMember(unit: Unit, dt: number)
 	if unit.Kind == "Officer" and now() >= unit.NextAttack then
 		local target = nearestHostile("Red", unit.Root.Position, unit.Def.Range)
 		if target and hasLineOfSight(unit.Root.Position, target.Position) then
-			beginAim(unit, target, unit.Def.AimTime)
+			beginAim(unit, target, aimTimeFor(unit))
 			return
 		end
 	end
@@ -1192,7 +1253,7 @@ local function updateIndividual(unit: Unit, dt: number)
 					end
 					sabreStrike(unit, target)
 				end
-				unit.NextAttack = t + def.Reload
+				unit.NextAttack = t + def.Reload * reloadMult(unit)
 				setPose(unit, "Idle")
 			else
 				executeAttack(unit)
@@ -1247,7 +1308,7 @@ local function updateIndividual(unit: Unit, dt: number)
 		faceTowards(unit, dir, 1)
 		FX.Slash(pos, dir)
 		if target.Kind == "Player" and target.Humanoid then
-			target.Humanoid:TakeDamage(bayonet.Damage)
+			target.Humanoid:TakeDamage(bayonet.Damage * damageMult(unit))
 		elseif target.Kind == "Unit" and target.Unit then
 			Units.Damage(target.Unit, bayonet.Damage, unit.Owner)
 		end
@@ -1260,7 +1321,7 @@ local function updateIndividual(unit: Unit, dt: number)
 
 	if inRange and los then
 		if t >= unit.NextAttack then
-			beginAim(unit, target, def.AimTime)
+			beginAim(unit, target, aimTimeFor(unit))
 		elseif def.Attack == "Sabre" then
 			-- Wheel around and come back for another pass.
 			moveUnit(unit, dir, def.Speed * 0.6, dt)
@@ -1299,6 +1360,11 @@ end
 ---------------------------------------------------------------------------
 -- Queries and lifecycle
 ---------------------------------------------------------------------------
+
+-- Scale redcoat strength for this wave. Already-spawned units keep their health.
+function Units.SetWave(wave: number)
+	difficulty = Config.GetDifficulty(wave)
+end
 
 function Units.FromInstance(inst: Instance): Unit?
 	local model = inst:FindFirstAncestorOfClass("Model")

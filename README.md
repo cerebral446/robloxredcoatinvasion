@@ -31,6 +31,7 @@ After you change files in `src/`, rebuild the place file with `python3 tools/bui
 | Input | Action |
 | --- | --- |
 | WASD | Move |
+| Shift (hold) | Sprint |
 | Mouse | Aim (your soldier faces the cursor) |
 | Left click | Fire. Hold it to keep firing as soon as you're loaded |
 | R | Reload (it also starts automatically when you're empty) |
@@ -39,6 +40,9 @@ After you change files in `src/`, rebuild the place file with `python3 tools/bui
 | B | Open the shop (between waves only) |
 | Mouse wheel | Zoom the camera |
 
+- **The first waves are gentle.** Early redcoats hit softer, miss more, reload
+  slower and fall to one musket ball. They reach full strength by wave 8
+  (`Config.Difficulty`).
 - **Muskets are slow.** Each shot is followed by a long reload, and you walk slower
   while loading. Firing on the move adds spread.
 - **Dodge volleys.** Redcoats raise their muskets (a "!" appears, and the officer shouts

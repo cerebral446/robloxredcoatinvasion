@@ -36,8 +36,10 @@ Config.Stores = {
 
 Config.Player = {
 	MaxHealth = 100,
-	WalkSpeed = 16,
-	ReloadWalkSpeed = 10,
+	WalkSpeed = 18,
+	SprintSpeed = 28, -- hold Shift
+	ReloadWalkSpeed = 11,
+	ReloadSprintSpeed = 17,
 	StartingMoney = 0,
 }
 
@@ -284,6 +286,29 @@ Config.Formation = {
 -- Musket-armed soldiers stab with the bayonet when a foe is in arm's reach.
 Config.Bayonet = { Range = 5, Damage = 20, Cooldown = 1.5 }
 
+-- Early waves are gentle: redcoats hit softer, miss more, reload slower,
+-- take longer to aim and have less health. They reach full strength at
+-- FullStrengthWave. Values are multipliers (AimBonus is extra seconds).
+Config.Difficulty = {
+	FullStrengthWave = 8,
+	FirstWave = { Damage = 0.35, Spread = 2.2, Reload = 1.6, Health = 0.6, AimBonus = 0.5 },
+}
+
+function Config.GetDifficulty(wave: number): { Damage: number, Spread: number, Reload: number, Health: number, AimBonus: number }
+	local first = Config.Difficulty.FirstWave
+	local t = math.clamp((wave - 1) / math.max(1, Config.Difficulty.FullStrengthWave - 1), 0, 1)
+	local function lerp(a: number, b: number): number
+		return a + (b - a) * t
+	end
+	return {
+		Damage = lerp(first.Damage, 1),
+		Spread = lerp(first.Spread, 1),
+		Reload = lerp(first.Reload, 1),
+		Health = lerp(first.Health, 1),
+		AimBonus = lerp(first.AimBonus, 0),
+	}
+end
+
 -- Wave composition. Line infantry spawn as formations (ranks of Regulars);
 -- everything else spawns individually across the north edge.
 export type WaveDef = {
@@ -301,8 +326,8 @@ function Config.GetWave(wave: number): WaveDef
 	for i = 1, formationCount do
 		table.insert(formations, {
 			Ranks = if wave >= 11 then 2 else 1,
-			Files = if wave >= 11 then 7 else math.min(4 + math.ceil(wave / 2), 9),
-			Officer = wave >= 2 and (i % 2 == 1),
+			Files = if wave >= 11 then 7 else math.min(3 + wave, 9),
+			Officer = wave >= 3 and (i % 2 == 1),
 		})
 	end
 
