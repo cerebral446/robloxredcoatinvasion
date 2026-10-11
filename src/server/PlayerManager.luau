@@ -13,6 +13,7 @@ local PlayerManager = {}
 type Data = {
 	Money: number,
 	Kills: number,
+	Score: number,
 	Owned: { [string]: boolean },
 	Equipped: string,
 	Ammo: { [string]: number },
@@ -78,10 +79,15 @@ local function sync(player: Player)
 	end
 	player:SetAttribute("Allies", Units.CountOwnedBy(player))
 
+	player:SetAttribute("Score", d.Score)
+	player:SetAttribute("Kills", d.Kills)
+
 	local stats = player:FindFirstChild("leaderstats")
 	if stats then
+		local score = stats:FindFirstChild("Score") :: IntValue
 		local kills = stats:FindFirstChild("Kills") :: IntValue
 		local money = stats:FindFirstChild("Dollars") :: IntValue
+		score.Value = d.Score
 		kills.Value = d.Kills
 		money.Value = d.Money
 	end
@@ -667,19 +673,38 @@ function PlayerManager.AddMoney(player: Player, amount: number)
 	end
 end
 
+-- Score = redcoat bounties plus a bonus for every wave survived.
 function PlayerManager.AddKill(player: Player, reward: number)
 	local d = data[player]
 	if d then
 		d.Kills += 1
 		d.Money += reward
+		d.Score += reward
 		sync(player)
 	end
+end
+
+function PlayerManager.AddScore(player: Player, amount: number)
+	local d = data[player]
+	if d then
+		d.Score += amount
+		sync(player)
+	end
+end
+
+function PlayerManager.GetStats(player: Player): (number, number)
+	local d = data[player]
+	if not d then
+		return 0, 0
+	end
+	return d.Score, d.Kills
 end
 
 function PlayerManager.Reset(player: Player)
 	local d: Data = {
 		Money = Config.Player.StartingMoney,
 		Kills = 0,
+		Score = 0,
 		Owned = { Musket = true },
 		Equipped = "Musket",
 		Ammo = { Musket = Config.Weapons.Musket.Capacity },
@@ -706,6 +731,9 @@ local function onPlayerAdded(player: Player)
 	player.DevEnableMouseLock = false
 	local stats = Instance.new("Folder")
 	stats.Name = "leaderstats"
+	local score = Instance.new("IntValue")
+	score.Name = "Score"
+	score.Parent = stats
 	local kills = Instance.new("IntValue")
 	kills.Name = "Kills"
 	kills.Parent = stats

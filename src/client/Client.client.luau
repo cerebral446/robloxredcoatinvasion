@@ -11,6 +11,8 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local Effects = require(script.Parent:WaitForChild("Effects"))
 local Interface = require(script.Parent:WaitForChild("Interface"))
 local Townsfolk = require(script.Parent:WaitForChild("Townsfolk"))
+local UnitAnimator = require(script.Parent:WaitForChild("UnitAnimator"))
+local LeaderboardUI = require(script.Parent:WaitForChild("LeaderboardUI"))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -30,6 +32,8 @@ end
 
 Effects.Init()
 Interface.Init()
+UnitAnimator.Init()
+LeaderboardUI.Init()
 -- Villagers are cosmetic; never let them break the rest of the client.
 task.spawn(function()
 	local ok, err = pcall(Townsfolk.Init)

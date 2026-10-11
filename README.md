@@ -38,6 +38,7 @@ After you change files in `src/`, rebuild the place file with `python3 tools/bui
 | F / Right click | Hatchet swing (melee) |
 | 1-4 | Switch between the firearms you own |
 | B | Open the shop (between waves only) |
+| L | Show or hide the leaderboard |
 | Mouse wheel | Zoom the camera |
 
 - **The first waves are gentle.** Early redcoats hit softer, miss more, reload
@@ -77,6 +78,33 @@ After you change files in `src/`, rebuild the place file with `python3 tools/bui
 - **Reinforcements:** hire up to 4 Minutemen who follow you and shoot redcoats, or
   repair the powder stores.
 
+## Game modes and leaderboard
+
+Before wave 1, players vote on the mode (panel at the top left):
+
+- **Campaign:** survive 15 waves to win.
+- **Endless:** the waves never stop. Past wave 15 the Regulars bring more
+  troops (capped to keep servers smooth) and get tougher each wave: more
+  health, harder hits and faster reloads (`Config.Endless`).
+
+**Score** is the bounty for each redcoat you kill, plus a bonus for every wave
+survived. The **live leaderboard** (L) ranks everyone in the current battle.
+Below it is the **all-time Endless top 10**. Each player's best run is saved
+(furthest wave first, then score) to an `OrderedDataStore`. Saving needs a
+published place with **Game Settings → Security → Enable Studio Access to API
+Services** turned on. Without that, the board shows the best runs on the
+current server instead.
+
+## Allies
+
+- **Minutemen** (hired in the shop) spread out in a loose ring around you, take
+  a new spot every few seconds, and run to catch up if you sprint away. They
+  fire at any redcoat in range without leaving you.
+- **Armed townsfolk** (townsmen, townswomen and a farmer) wander the village
+  in peacetime. When the Regulars come within range they move up to the
+  stockade, using the firing gaps, and shoot back with their own muskets.
+  Redcoats can shoot them too. Fallen townsfolk are replaced each intermission.
+
 ## Atmosphere
 
 - **Lighting:** golden-hour light with atmosphere, bloom and colour grading.
@@ -86,10 +114,12 @@ After you change files in `src/`, rebuild the place file with `python3 tools/bui
 - **Fires:** campfires, a forge, braziers, burning haystacks, wagons and roofs
   with flickering light. Big explosions leave the ground burning for a while.
 - **The British redoubt:** a stone fort with Union flags along the north edge.
-- **Townsfolk:** villagers wander and chat, then panic and take shelter during
-  waves. There's also a town crier with a bell, a blacksmith at the forge, a
-  drummer boy, children, a farmer and chickens. They only exist on each
-  player's screen, so they cost no network traffic and can't be hurt.
+- **Villagers:** children, a town crier with a bell, a blacksmith at the
+  forge, a drummer boy and chickens wander and chat, then panic and take
+  shelter during waves. They only exist on each player's screen, so they cost
+  no network traffic and can't be hurt.
+- **Walking:** soldiers and townsfolk swing their legs as they move. This is
+  animated on each player's screen.
 - **Uniforms:** players wear a Continental uniform (navy coat, buff breeches,
   white crossbelts and a gold-trimmed tricorne) and hold their weapon in
   their hands.
@@ -103,10 +133,13 @@ src/server/MapBuilder.luau        Procedural battlefield, village and powder sto
 src/server/SetDressing.luau       Lighting, fires, lanterns, flags, redoubt, palisades, props
 src/server/Units.luau             Redcoat and militia models, formations and AI
 src/server/PlayerManager.luau     Player weapons, reloading, melee, shop and upgrades
+src/server/Leaderboard.luau       All-time Endless leaderboard (OrderedDataStore + fallback)
 src/server/FX.luau                Sends visual-effect events to clients
 src/client/Client.client.luau     Top-down camera, mouse aiming, input
 src/client/Interface.luau         HUD, announcements, crosshair and shop UI
 src/client/Effects.luau           Musket smoke, tracers, grenades, cannon fire, light flicker
+src/client/LeaderboardUI.luau     Live leaderboard panel and the mode vote
+src/client/UnitAnimator.luau      Leg animation for soldiers and townsfolk
 src/client/Townsfolk.luau         Cosmetic villagers and chickens (client-side only)
 tools/build_place.py              Builds RedcoatInvasion.rbxlx from src/
 ```

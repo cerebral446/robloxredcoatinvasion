@@ -11,7 +11,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 -- Networking objects must exist before the other modules load.
 local remotes = Instance.new("Folder")
 remotes.Name = "Remotes"
-for _, name in { "Fire", "Reload", "Melee", "Equip", "Ready", "Effect", "Announce", "Sprint" } do
+for _, name in { "Fire", "Reload", "Melee", "Equip", "Ready", "Effect", "Announce", "Sprint", "VoteMode" } do
 	local r = Instance.new("RemoteEvent")
 	r.Name = name
 	r.Parent = remotes
@@ -31,6 +31,11 @@ gameState:SetAttribute("EnemiesLeft", 0)
 gameState:SetAttribute("StoresHealth", Config.Stores.MaxHealth)
 gameState:SetAttribute("StoresMax", Config.Stores.MaxHealth)
 gameState:SetAttribute("WaveName", "")
+-- "Campaign" ends after FinalWave; "Endless" keeps going for the leaderboard.
+gameState:SetAttribute("Mode", "Campaign")
+gameState:SetAttribute("ModeLocked", false)
+gameState:SetAttribute("VotesCampaign", 0)
+gameState:SetAttribute("VotesEndless", 0)
 gameState.Parent = ReplicatedStorage
 
 local effects = Instance.new("Folder")
@@ -43,6 +48,9 @@ local FX = require(script.Parent:WaitForChild("FX"))
 local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 local Units = require(script.Parent:WaitForChild("Units"))
 local PlayerManager = require(script.Parent:WaitForChild("PlayerManager"))
+local Leaderboard = require(script.Parent:WaitForChild("Leaderboard"))
+
+task.spawn(Leaderboard.Init, gameState)
 
 local map, stores = MapBuilder.Build()
 Units.Init(map, stores, gameState)
@@ -134,6 +142,42 @@ Players.PlayerRemoving:Connect(function(player)
 	ready[player] = nil
 end)
 
+-- Mode votes, taken before the first wave.
+local modeVotes: { [Player]: string } = {}
+local function tallyVotes()
+	local campaign, endless = 0, 0
+	for p, choice in modeVotes do
+		if p.Parent then
+			if choice == "Endless" then
+				endless += 1
+			else
+				campaign += 1
+			end
+		end
+	end
+	gameState:SetAttribute("VotesCampaign", campaign)
+	gameState:SetAttribute("VotesEndless", endless)
+	-- The leading choice is shown live; ties keep the current mode.
+	if endless > campaign then
+		gameState:SetAttribute("Mode", "Endless")
+	elseif campaign > endless then
+		gameState:SetAttribute("Mode", "Campaign")
+	end
+end
+local voteRemote = remotes:WaitForChild("VoteMode") :: RemoteEvent
+voteRemote.OnServerEvent:Connect(function(player, choice)
+	if gameState:GetAttribute("ModeLocked") or (choice ~= "Campaign" and choice ~= "Endless") then
+		return
+	end
+	modeVotes[player] = choice
+	player:SetAttribute("ModeVote", choice)
+	tallyVotes()
+end)
+Players.PlayerRemoving:Connect(function(player)
+	modeVotes[player] = nil
+	tallyVotes()
+end)
+
 RunService.Heartbeat:Connect(function(dt)
 	Units.Step(math.min(dt, 0.1))
 end)
@@ -151,8 +195,12 @@ end
 
 local SOUTH = Vector3.new(0, 0, 1)
 
+local function isEndless(): boolean
+	return gameState:GetAttribute("Mode") == "Endless"
+end
+
 local function buildSpawnQueue(wave: number): { SpawnEntry }
-	local def = Config.GetWave(wave)
+	local def = Config.GetWave(wave, isEndless())
 	local queue: { SpawnEntry } = {}
 
 	for i, formation in def.Formations do
@@ -217,6 +265,14 @@ local function resetGame()
 	gameState:SetAttribute("Wave", 0)
 	gameState:SetAttribute("EnemiesLeft", 0)
 	gameState:SetAttribute("WaveName", "")
+	gameState:SetAttribute("ModeLocked", false)
+	gameState:SetAttribute("FinalWave", Config.Rounds.FinalWave)
+	table.clear(modeVotes)
+	for _, p in Players:GetPlayers() do
+		p:SetAttribute("ModeVote", nil)
+	end
+	tallyVotes()
+	Units.SpawnTownsfolk()
 end
 
 local function intermission(duration: number)
@@ -224,6 +280,7 @@ local function intermission(duration: number)
 	setPhase("Intermission", duration)
 	respawnFallen()
 	PlayerManager.HealAll()
+	Units.SpawnTownsfolk()
 	local deadline = now() + duration
 	while now() < deadline do
 		if allReady() then
@@ -236,7 +293,7 @@ end
 
 -- Returns "Won" when every redcoat is dead, or "Lost".
 local function runWave(wave: number): string
-	local def = Config.GetWave(wave)
+	local def = Config.GetWave(wave, isEndless())
 	gameState:SetAttribute("Wave", wave)
 	gameState:SetAttribute("WaveName", def.Name or "")
 	setPhase("Wave")
@@ -276,18 +333,39 @@ while true do
 	respawnFallen()
 
 	local outcome = "Won"
-	for wave = 1, Config.Rounds.FinalWave do
+	local wave = 0
+	while true do
+		wave += 1
 		intermission(if wave == 1 then Config.Rounds.FirstIntermission else Config.Rounds.IntermissionTime)
+		if wave == 1 then
+			-- Lock in the mode vote once the first intermission ends.
+			gameState:SetAttribute("ModeLocked", true)
+			gameState:SetAttribute("FinalWave", if isEndless() then 0 else Config.Rounds.FinalWave)
+			FX.Announce(if isEndless() then "ENDLESS MODE: hold out as long as you can!" else "CAMPAIGN: survive 15 waves!", Color3.fromRGB(255, 220, 120))
+		end
 		outcome = runWave(wave)
 		if outcome == "Lost" then
 			break
 		end
+		local bonus = Config.Rounds.WaveClearBonus + wave * 10
 		for _, p in Players:GetPlayers() do
-			PlayerManager.AddMoney(p, Config.Rounds.WaveClearBonus + wave * 10)
+			PlayerManager.AddMoney(p, bonus)
+			PlayerManager.AddScore(p, Config.Endless.SurviveScore * wave)
 		end
-		if wave < Config.Rounds.FinalWave then
-			FX.Announce(("Wave %d repulsed! +$%d"):format(wave, Config.Rounds.WaveClearBonus + wave * 10), Color3.fromRGB(120, 200, 255))
+		if not isEndless() and wave >= Config.Rounds.FinalWave then
+			break
 		end
+		FX.Announce(("Wave %d repulsed! +$%d"):format(wave, bonus), Color3.fromRGB(120, 200, 255))
+	end
+
+	if isEndless() then
+		-- Every player present gets their run recorded on the leaderboard.
+		local results = {}
+		for _, p in Players:GetPlayers() do
+			local score = PlayerManager.GetStats(p)
+			table.insert(results, { Player = p, Wave = wave, Score = score })
+		end
+		task.spawn(Leaderboard.RecordRun, results)
 	end
 
 	if outcome == "Won" then
@@ -296,7 +374,7 @@ while true do
 	else
 		setPhase("GameOver", Config.Rounds.GameOverTime)
 		local reason = if storesDestroyed then "The powder stores have fallen!" else "The militia has been routed!"
-		FX.Announce(("%s Survived to wave %d."):format(reason, gameState:GetAttribute("Wave")), Color3.fromRGB(255, 90, 80))
+		FX.Announce(("%s You reached wave %d."):format(reason, gameState:GetAttribute("Wave")), Color3.fromRGB(255, 90, 80))
 	end
 	task.wait(Config.Rounds.GameOverTime)
 	Units.Clear()

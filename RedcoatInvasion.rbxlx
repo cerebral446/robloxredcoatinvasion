@@ -141,6 +141,23 @@ Config.Upgrades = {
 Config.Allies = {
 	HireCost = 150,
 	MaxPerPlayer = 4,
+	-- Minutemen spread out in a loose ring around their player.
+	FollowRadius = { 7, 15 },
+	CatchUpSpeed = 26, -- when they fall far behind
+	ShuffleTime = { 6, 12 }, -- seconds between picking a new spot
+}
+
+-- Armed townsfolk respawned in the village every intermission.
+Config.Townsfolk = {
+	Roster = { "Townsman", "Townsman", "Townsman", "Townswoman", "Townswoman", "Townswoman", "Farmer" },
+	-- Village bounds they wander within; StockadeZ is the line they defend.
+	MinX = -85,
+	MaxX = 85,
+	MinZ = 95,
+	MaxZ = 165,
+	StockadeZ = 91,
+	StockadeGaps = { -44, 0, 44 }, -- x positions of the openings in the stakes
+	Shouts = { "For liberty!", "Get off my land!", "Huzzah!", "Leave us be!", "Not in my town!" },
 }
 
 -- Unit definitions shared by redcoats and hired militia.
@@ -157,8 +174,10 @@ export type UnitDef = {
 	AimTime: number,
 	Bounty: number,
 	CoatColor: Color3,
-	Hat: string, -- "Tricorne" | "Bearskin" | "Helmet" | "Cap" | "None"
+	Hat: string, -- "Tricorne" | "Bearskin" | "Helmet" | "Cap" | "MobCap" | "StrawHat" | "None"
 	Scale: number?,
+	Civilian: boolean?, -- armed townsfolk: stay in the village, defend from the stockade
+	Outfit: string?, -- civilians: "Man" | "Woman" | "Farmer"
 }
 
 Config.Units = {
@@ -268,6 +287,58 @@ Config.Units = {
 		CoatColor = Color3.fromRGB(32, 45, 100), -- Continental blue
 		Hat = "Tricorne",
 	},
+	-- Armed townsfolk who defend their homes.
+	Townsman = {
+		DisplayName = "Townsman",
+		Team = "Blue",
+		Health = 70,
+		Speed = 7,
+		Attack = "Musket",
+		Damage = 35,
+		Range = 75,
+		Reload = 7,
+		Spread = 6,
+		AimTime = 0.8,
+		Bounty = 0,
+		CoatColor = Color3.fromRGB(110, 75, 50),
+		Hat = "Tricorne",
+		Civilian = true,
+		Outfit = "Man",
+	},
+	Townswoman = {
+		DisplayName = "Townswoman",
+		Team = "Blue",
+		Health = 70,
+		Speed = 7,
+		Attack = "Musket",
+		Damage = 35,
+		Range = 75,
+		Reload = 7,
+		Spread = 6,
+		AimTime = 0.8,
+		Bounty = 0,
+		CoatColor = Color3.fromRGB(70, 90, 60),
+		Hat = "MobCap",
+		Civilian = true,
+		Outfit = "Woman",
+	},
+	Farmer = {
+		DisplayName = "Farmer",
+		Team = "Blue",
+		Health = 85,
+		Speed = 7,
+		Attack = "Musket",
+		Damage = 40,
+		Range = 75,
+		Reload = 7.5,
+		Spread = 5,
+		AimTime = 0.8,
+		Bounty = 0,
+		CoatColor = Color3.fromRGB(150, 130, 100),
+		Hat = "StrawHat",
+		Civilian = true,
+		Outfit = "Farmer",
+	},
 } :: { [string]: UnitDef }
 
 -- Officers make nearby redcoats reload faster.
@@ -300,14 +371,33 @@ function Config.GetDifficulty(wave: number): { Damage: number, Spread: number, R
 	local function lerp(a: number, b: number): number
 		return a + (b - a) * t
 	end
+	-- Endless: past the campaign's last wave the Regulars keep getting tougher.
+	local beyond = math.max(0, wave - Config.Rounds.FinalWave)
+	local e = Config.Endless
 	return {
-		Damage = lerp(first.Damage, 1),
+		Damage = lerp(first.Damage, 1) * (1 + e.DamagePerWave * beyond),
 		Spread = lerp(first.Spread, 1),
-		Reload = lerp(first.Reload, 1),
-		Health = lerp(first.Health, 1),
+		Reload = lerp(first.Reload, 1) * math.max(e.MinReload, 1 - e.ReloadPerWave * beyond),
+		Health = lerp(first.Health, 1) * (1 + e.HealthPerWave * beyond),
 		AimBonus = lerp(first.AimBonus, 0),
 	}
 end
+
+-- Endless mode: waves past FinalWave add units (up to the caps below, to keep
+-- servers smooth) and scale redcoat stats per extra wave.
+Config.Endless = {
+	HealthPerWave = 0.06,
+	DamagePerWave = 0.03,
+	ReloadPerWave = 0.015,
+	MinReload = 0.6,
+	MaxFormations = 4,
+	MaxLightInfantry = 22,
+	MaxGrenadiers = 12,
+	MaxDragoons = 12,
+	MaxCannons = 4,
+	SurviveScore = 25, -- score per wave survived (both modes)
+	WaveNames = { "The King's Wrath", "No Quarter", "The Long Night", "Redcoat Tide", "Last Stand at Concord" },
+}
 
 -- Wave composition. Line infantry spawn as formations (ranks of Regulars);
 -- everything else spawns individually across the north edge.
@@ -320,9 +410,14 @@ export type WaveDef = {
 	Name: string?,
 }
 
-function Config.GetWave(wave: number): WaveDef
+function Config.GetWave(wave: number, endless: boolean?): WaveDef
+	local e = Config.Endless
+	local beyond = math.max(0, wave - Config.Rounds.FinalWave)
 	local formations = {}
 	local formationCount = math.min(1 + math.floor((wave - 1) / 4), 3)
+	if beyond > 0 then
+		formationCount = math.min(3 + math.floor(beyond / 5), e.MaxFormations)
+	end
 	for i = 1, formationCount do
 		table.insert(formations, {
 			Ranks = if wave >= 11 then 2 else 1,
@@ -338,6 +433,12 @@ function Config.GetWave(wave: number): WaveDef
 		Dragoon = if wave >= 5 then math.floor((wave - 2) / 3) else 0,
 		Cannon = if wave >= 7 then 1 + math.floor((wave - 7) / 4) else 0,
 	}
+	if beyond > 0 then
+		def.LightInfantry = math.min(def.LightInfantry, e.MaxLightInfantry)
+		def.Grenadier = math.min(def.Grenadier + math.floor(beyond / 3), e.MaxGrenadiers)
+		def.Dragoon = math.min(def.Dragoon + math.floor(beyond / 3), e.MaxDragoons)
+		def.Cannon = math.min(def.Cannon, e.MaxCannons)
+	end
 
 	if wave == 1 then
 		def.Name = "The Regulars Are Coming!"
@@ -345,17 +446,19 @@ function Config.GetWave(wave: number): WaveDef
 		def.Name = "The King's Dragoons"
 	elseif wave == 10 then
 		def.Name = "Grenadiers Advance"
-	elseif wave == Config.Rounds.FinalWave then
+	elseif wave == Config.Rounds.FinalWave and not endless then
 		def.Name = "The Final Push"
 		def.Grenadier += 2
 		def.Dragoon += 2
+	elseif endless and wave >= Config.Rounds.FinalWave and wave % 5 == 0 then
+		def.Name = e.WaveNames[((wave // 5) % #e.WaveNames) + 1]
 	end
 
 	return def
 end
 
 return Config
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ServerScriptService" referent="RBX0000000C"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="ModuleScript" referent="RBX00000006"><Properties><string name="Name">FX</string><ProtectedString name="Source"><![CDATA[-- Server -> client visual effects. The server decides *what* happened; every
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ServerScriptService" referent="RBX0000000D"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="ModuleScript" referent="RBX00000006"><Properties><string name="Name">FX</string><ProtectedString name="Source"><![CDATA[-- Server -> client visual effects. The server decides *what* happened; every
 -- client draws smoke, tracers, grenades and cannonballs locally.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -422,7 +525,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 -- Networking objects must exist before the other modules load.
 local remotes = Instance.new("Folder")
 remotes.Name = "Remotes"
-for _, name in { "Fire", "Reload", "Melee", "Equip", "Ready", "Effect", "Announce", "Sprint" } do
+for _, name in { "Fire", "Reload", "Melee", "Equip", "Ready", "Effect", "Announce", "Sprint", "VoteMode" } do
 	local r = Instance.new("RemoteEvent")
 	r.Name = name
 	r.Parent = remotes
@@ -442,6 +545,11 @@ gameState:SetAttribute("EnemiesLeft", 0)
 gameState:SetAttribute("StoresHealth", Config.Stores.MaxHealth)
 gameState:SetAttribute("StoresMax", Config.Stores.MaxHealth)
 gameState:SetAttribute("WaveName", "")
+-- "Campaign" ends after FinalWave; "Endless" keeps going for the leaderboard.
+gameState:SetAttribute("Mode", "Campaign")
+gameState:SetAttribute("ModeLocked", false)
+gameState:SetAttribute("VotesCampaign", 0)
+gameState:SetAttribute("VotesEndless", 0)
 gameState.Parent = ReplicatedStorage
 
 local effects = Instance.new("Folder")
@@ -454,6 +562,9 @@ local FX = require(script.Parent:WaitForChild("FX"))
 local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 local Units = require(script.Parent:WaitForChild("Units"))
 local PlayerManager = require(script.Parent:WaitForChild("PlayerManager"))
+local Leaderboard = require(script.Parent:WaitForChild("Leaderboard"))
+
+task.spawn(Leaderboard.Init, gameState)
 
 local map, stores = MapBuilder.Build()
 Units.Init(map, stores, gameState)
@@ -545,6 +656,42 @@ Players.PlayerRemoving:Connect(function(player)
 	ready[player] = nil
 end)
 
+-- Mode votes, taken before the first wave.
+local modeVotes: { [Player]: string } = {}
+local function tallyVotes()
+	local campaign, endless = 0, 0
+	for p, choice in modeVotes do
+		if p.Parent then
+			if choice == "Endless" then
+				endless += 1
+			else
+				campaign += 1
+			end
+		end
+	end
+	gameState:SetAttribute("VotesCampaign", campaign)
+	gameState:SetAttribute("VotesEndless", endless)
+	-- The leading choice is shown live; ties keep the current mode.
+	if endless > campaign then
+		gameState:SetAttribute("Mode", "Endless")
+	elseif campaign > endless then
+		gameState:SetAttribute("Mode", "Campaign")
+	end
+end
+local voteRemote = remotes:WaitForChild("VoteMode") :: RemoteEvent
+voteRemote.OnServerEvent:Connect(function(player, choice)
+	if gameState:GetAttribute("ModeLocked") or (choice ~= "Campaign" and choice ~= "Endless") then
+		return
+	end
+	modeVotes[player] = choice
+	player:SetAttribute("ModeVote", choice)
+	tallyVotes()
+end)
+Players.PlayerRemoving:Connect(function(player)
+	modeVotes[player] = nil
+	tallyVotes()
+end)
+
 RunService.Heartbeat:Connect(function(dt)
 	Units.Step(math.min(dt, 0.1))
 end)
@@ -562,8 +709,12 @@ end
 
 local SOUTH = Vector3.new(0, 0, 1)
 
+local function isEndless(): boolean
+	return gameState:GetAttribute("Mode") == "Endless"
+end
+
 local function buildSpawnQueue(wave: number): { SpawnEntry }
-	local def = Config.GetWave(wave)
+	local def = Config.GetWave(wave, isEndless())
 	local queue: { SpawnEntry } = {}
 
 	for i, formation in def.Formations do
@@ -628,6 +779,14 @@ local function resetGame()
 	gameState:SetAttribute("Wave", 0)
 	gameState:SetAttribute("EnemiesLeft", 0)
 	gameState:SetAttribute("WaveName", "")
+	gameState:SetAttribute("ModeLocked", false)
+	gameState:SetAttribute("FinalWave", Config.Rounds.FinalWave)
+	table.clear(modeVotes)
+	for _, p in Players:GetPlayers() do
+		p:SetAttribute("ModeVote", nil)
+	end
+	tallyVotes()
+	Units.SpawnTownsfolk()
 end
 
 local function intermission(duration: number)
@@ -635,6 +794,7 @@ local function intermission(duration: number)
 	setPhase("Intermission", duration)
 	respawnFallen()
 	PlayerManager.HealAll()
+	Units.SpawnTownsfolk()
 	local deadline = now() + duration
 	while now() < deadline do
 		if allReady() then
@@ -647,7 +807,7 @@ end
 
 -- Returns "Won" when every redcoat is dead, or "Lost".
 local function runWave(wave: number): string
-	local def = Config.GetWave(wave)
+	local def = Config.GetWave(wave, isEndless())
 	gameState:SetAttribute("Wave", wave)
 	gameState:SetAttribute("WaveName", def.Name or "")
 	setPhase("Wave")
@@ -687,18 +847,39 @@ while true do
 	respawnFallen()
 
 	local outcome = "Won"
-	for wave = 1, Config.Rounds.FinalWave do
+	local wave = 0
+	while true do
+		wave += 1
 		intermission(if wave == 1 then Config.Rounds.FirstIntermission else Config.Rounds.IntermissionTime)
+		if wave == 1 then
+			-- Lock in the mode vote once the first intermission ends.
+			gameState:SetAttribute("ModeLocked", true)
+			gameState:SetAttribute("FinalWave", if isEndless() then 0 else Config.Rounds.FinalWave)
+			FX.Announce(if isEndless() then "ENDLESS MODE: hold out as long as you can!" else "CAMPAIGN: survive 15 waves!", Color3.fromRGB(255, 220, 120))
+		end
 		outcome = runWave(wave)
 		if outcome == "Lost" then
 			break
 		end
+		local bonus = Config.Rounds.WaveClearBonus + wave * 10
 		for _, p in Players:GetPlayers() do
-			PlayerManager.AddMoney(p, Config.Rounds.WaveClearBonus + wave * 10)
+			PlayerManager.AddMoney(p, bonus)
+			PlayerManager.AddScore(p, Config.Endless.SurviveScore * wave)
 		end
-		if wave < Config.Rounds.FinalWave then
-			FX.Announce(("Wave %d repulsed! +$%d"):format(wave, Config.Rounds.WaveClearBonus + wave * 10), Color3.fromRGB(120, 200, 255))
+		if not isEndless() and wave >= Config.Rounds.FinalWave then
+			break
 		end
+		FX.Announce(("Wave %d repulsed! +$%d"):format(wave, bonus), Color3.fromRGB(120, 200, 255))
+	end
+
+	if isEndless() then
+		-- Every player present gets their run recorded on the leaderboard.
+		local results = {}
+		for _, p in Players:GetPlayers() do
+			local score = PlayerManager.GetStats(p)
+			table.insert(results, { Player = p, Wave = wave, Score = score })
+		end
+		task.spawn(Leaderboard.RecordRun, results)
 	end
 
 	if outcome == "Won" then
@@ -707,7 +888,7 @@ while true do
 	else
 		setPhase("GameOver", Config.Rounds.GameOverTime)
 		local reason = if storesDestroyed then "The powder stores have fallen!" else "The militia has been routed!"
-		FX.Announce(("%s Survived to wave %d."):format(reason, gameState:GetAttribute("Wave")), Color3.fromRGB(255, 90, 80))
+		FX.Announce(("%s You reached wave %d."):format(reason, gameState:GetAttribute("Wave")), Color3.fromRGB(255, 90, 80))
 	end
 	task.wait(Config.Rounds.GameOverTime)
 	Units.Clear()
@@ -718,7 +899,192 @@ while true do
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000008"><Properties><string name="Name">MapBuilder</string><ProtectedString name="Source"><![CDATA[-- Builds the battlefield procedurally: fields, the road, stone walls, trees,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000008"><Properties><string name="Name">Leaderboard</string><ProtectedString name="Source"><![CDATA[-- All-time Endless leaderboard, saved with an OrderedDataStore.
+--
+-- Each player's best run is stored as one number so it sorts correctly:
+-- wave * 1,000,000 + score (furthest wave first, then highest score).
+-- If DataStores are unavailable (e.g. Studio without "Enable Studio Access to
+-- API Services", or an unpublished place) it falls back to this server's
+-- best runs so the board still works.
+--
+-- The current top runs are published as JSON on GameState."TopEndless".
+
+local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+
+local Leaderboard = {}
+
+local STORE_NAME = "RedcoatEndlessBest_v1"
+local TOP_COUNT = 10
+local REFRESH_SECONDS = 60
+local SCORE_SCALE = 1000000
+
+type Entry = { UserId: number, Name: string, Wave: number, Score: number }
+
+local gameState: Instance
+local store: OrderedDataStore? = nil
+local online = false
+local sessionBest: { [number]: Entry } = {}
+local nameCache: { [number]: string } = {}
+
+local function encode(wave: number, score: number): number
+	return math.floor(wave) * SCORE_SCALE + math.clamp(math.floor(score), 0, SCORE_SCALE - 1)
+end
+
+local function decode(value: number): (number, number)
+	return value // SCORE_SCALE, value % SCORE_SCALE
+end
+
+local function nameFor(userId: number): string
+	if nameCache[userId] then
+		return nameCache[userId]
+	end
+	local player = Players:GetPlayerByUserId(userId)
+	if player then
+		nameCache[userId] = player.DisplayName
+		return player.DisplayName
+	end
+	local ok, name = pcall(Players.GetNameFromUserIdAsync, Players, userId)
+	local result = if ok and name then name else ("Player " .. userId)
+	nameCache[userId] = result
+	return result
+end
+
+local function sessionTop(): { Entry }
+	local list = {}
+	for _, e in sessionBest do
+		table.insert(list, e)
+	end
+	table.sort(list, function(a, b)
+		return encode(a.Wave, a.Score) > encode(b.Wave, b.Score)
+	end)
+	while #list > TOP_COUNT do
+		table.remove(list)
+	end
+	return list
+end
+
+local function publish(entries: { Entry }, source: string)
+	local rows = {}
+	for _, e in entries do
+		table.insert(rows, { name = e.Name, wave = e.Wave, score = e.Score })
+	end
+	gameState:SetAttribute("TopEndless", HttpService:JSONEncode(rows))
+	gameState:SetAttribute("TopEndlessSource", source)
+end
+
+function Leaderboard.Refresh()
+	if not online or not store then
+		publish(sessionTop(), "server")
+		return
+	end
+	local ok, pages = pcall(function()
+		return (store :: OrderedDataStore):GetSortedAsync(false, TOP_COUNT)
+	end)
+	if not ok then
+		warn("[Leaderboard] Could not read the all-time board:", pages)
+		publish(sessionTop(), "server")
+		return
+	end
+	local entries = {}
+	for _, item in (pages :: DataStorePages):GetCurrentPage() do
+		local userId = tonumber(item.key)
+		if userId then
+			local wave, score = decode(item.value)
+			table.insert(entries, { UserId = userId, Name = nameFor(userId), Wave = wave, Score = score })
+		end
+	end
+	publish(entries, "global")
+end
+
+-- Record an Endless run for each player. `wave` is the wave they reached.
+function Leaderboard.RecordRun(results: { { Player: Player, Wave: number, Score: number } })
+	for _, r in results do
+		local userId = r.Player.UserId
+		local value = encode(r.Wave, r.Score)
+		nameCache[userId] = r.Player.DisplayName
+
+		local prev = sessionBest[userId]
+		if not prev or encode(prev.Wave, prev.Score) < value then
+			sessionBest[userId] = { UserId = userId, Name = r.Player.DisplayName, Wave = r.Wave, Score = r.Score }
+		end
+		if r.Player.Parent then
+			local best = r.Player:GetAttribute("BestWave") or 0
+			r.Player:SetAttribute("BestWave", math.max(best, r.Wave))
+		end
+
+		if online and store then
+			-- Test players in Studio have negative ids; don't save those.
+			if userId > 0 then
+				local ok, err = pcall(function()
+					(store :: OrderedDataStore):UpdateAsync(tostring(userId), function(old)
+						if old and old >= value then
+							return nil -- keep the better existing record
+						end
+						return value
+					end)
+				end)
+				if not ok then
+					warn("[Leaderboard] Could not save run:", err)
+				end
+			end
+		end
+	end
+	Leaderboard.Refresh()
+end
+
+local function loadPersonalBest(player: Player)
+	if not online or not store or player.UserId <= 0 then
+		return
+	end
+	local ok, value = pcall(function()
+		return (store :: OrderedDataStore):GetAsync(tostring(player.UserId))
+	end)
+	if ok and typeof(value) == "number" and player.Parent then
+		local wave = decode(value)
+		player:SetAttribute("BestWave", math.max(player:GetAttribute("BestWave") or 0, wave))
+	end
+end
+
+function Leaderboard.Init(state: Instance)
+	gameState = state
+	gameState:SetAttribute("TopEndless", "[]")
+	gameState:SetAttribute("TopEndlessSource", "server")
+
+	local ok, result = pcall(function()
+		return DataStoreService:GetOrderedDataStore(STORE_NAME)
+	end)
+	if ok then
+		store = result
+		-- A cheap read tells us whether API access actually works here.
+		local probe = pcall(function()
+			return (store :: OrderedDataStore):GetSortedAsync(false, 1)
+		end)
+		online = probe
+	end
+	if not online then
+		warn("[Leaderboard] DataStores unavailable; showing this server's best runs only. "
+			.. "Publish the place and enable 'Studio Access to API Services' to save all-time scores.")
+	end
+
+	Players.PlayerAdded:Connect(function(player)
+		task.spawn(loadPersonalBest, player)
+	end)
+	for _, p in Players:GetPlayers() do
+		task.spawn(loadPersonalBest, p)
+	end
+
+	task.spawn(function()
+		while true do
+			Leaderboard.Refresh()
+			task.wait(REFRESH_SECONDS)
+		end
+	end)
+end
+
+return Leaderboard
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000009"><Properties><string name="Name">MapBuilder</string><ProtectedString name="Source"><![CDATA[-- Builds the battlefield procedurally: fields, the road, stone walls, trees,
 -- the village and the powder stores the redcoats are marching to seize.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1114,7 +1480,7 @@ function MapBuilder.Build(): (Folder, Model)
 end
 
 return MapBuilder
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000009"><Properties><string name="Name">PlayerManager</string><ProtectedString name="Source"><![CDATA[-- Per-player state: money, weapons, upgrades, firing, reloading and the shop.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000A"><Properties><string name="Name">PlayerManager</string><ProtectedString name="Source"><![CDATA[-- Per-player state: money, weapons, upgrades, firing, reloading and the shop.
 -- State the client needs to draw the HUD is mirrored onto player attributes.
 
 local Players = game:GetService("Players")
@@ -1129,6 +1495,7 @@ local PlayerManager = {}
 type Data = {
 	Money: number,
 	Kills: number,
+	Score: number,
 	Owned: { [string]: boolean },
 	Equipped: string,
 	Ammo: { [string]: number },
@@ -1194,10 +1561,15 @@ local function sync(player: Player)
 	end
 	player:SetAttribute("Allies", Units.CountOwnedBy(player))
 
+	player:SetAttribute("Score", d.Score)
+	player:SetAttribute("Kills", d.Kills)
+
 	local stats = player:FindFirstChild("leaderstats")
 	if stats then
+		local score = stats:FindFirstChild("Score") :: IntValue
 		local kills = stats:FindFirstChild("Kills") :: IntValue
 		local money = stats:FindFirstChild("Dollars") :: IntValue
+		score.Value = d.Score
 		kills.Value = d.Kills
 		money.Value = d.Money
 	end
@@ -1783,19 +2155,38 @@ function PlayerManager.AddMoney(player: Player, amount: number)
 	end
 end
 
+-- Score = redcoat bounties plus a bonus for every wave survived.
 function PlayerManager.AddKill(player: Player, reward: number)
 	local d = data[player]
 	if d then
 		d.Kills += 1
 		d.Money += reward
+		d.Score += reward
 		sync(player)
 	end
+end
+
+function PlayerManager.AddScore(player: Player, amount: number)
+	local d = data[player]
+	if d then
+		d.Score += amount
+		sync(player)
+	end
+end
+
+function PlayerManager.GetStats(player: Player): (number, number)
+	local d = data[player]
+	if not d then
+		return 0, 0
+	end
+	return d.Score, d.Kills
 end
 
 function PlayerManager.Reset(player: Player)
 	local d: Data = {
 		Money = Config.Player.StartingMoney,
 		Kills = 0,
+		Score = 0,
 		Owned = { Musket = true },
 		Equipped = "Musket",
 		Ammo = { Musket = Config.Weapons.Musket.Capacity },
@@ -1822,6 +2213,9 @@ local function onPlayerAdded(player: Player)
 	player.DevEnableMouseLock = false
 	local stats = Instance.new("Folder")
 	stats.Name = "leaderstats"
+	local score = Instance.new("IntValue")
+	score.Name = "Score"
+	score.Parent = stats
 	local kills = Instance.new("IntValue")
 	kills.Name = "Kills"
 	kills.Parent = stats
@@ -1868,7 +2262,7 @@ function PlayerManager.Init(state: Instance, shopOpen: () -> boolean)
 end
 
 return PlayerManager
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000A"><Properties><string name="Name">SetDressing</string><ProtectedString name="Source"><![CDATA[-- Atmosphere and set dressing: golden-hour lighting, fires, lanterns, flags,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000B"><Properties><string name="Name">SetDressing</string><ProtectedString name="Source"><![CDATA[-- Atmosphere and set dressing: golden-hour lighting, fires, lanterns, flags,
 -- the British redoubt, palisades, crates, barrels, haystacks and the forge.
 
 local CollectionService = game:GetService("CollectionService")
@@ -2430,7 +2824,7 @@ function SetDressing.Build(map: Folder, cover: Folder, decor: Folder, northZ: nu
 end
 
 return SetDressing
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000B"><Properties><string name="Name">Units</string><ProtectedString name="Source"><![CDATA[-- Redcoats and hired militia: model construction, AI, and damage handling.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000C"><Properties><string name="Name">Units</string><ProtectedString name="Source"><![CDATA[-- Redcoats and hired militia: model construction, AI, and damage handling.
 --
 -- Units are anchored models moved by CFrame every frame. That keeps dozens of
 -- soldiers cheap and lets line infantry hold tidy formations. Each unit's
@@ -2439,6 +2833,7 @@ return SetDressing
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
+local CollectionService = game:GetService("CollectionService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local FX = require(script.Parent:WaitForChild("FX"))
@@ -2488,6 +2883,13 @@ export type Unit = {
 	LastMoveTime: number?,
 	DetourDir: Vector3?,
 	DetourUntil: number?,
+	Home: Vector3?,
+	WanderTarget: Vector3?,
+	WanderWait: number?,
+	NextShout: number?,
+	SlotAngle: number?,
+	SlotRadius: number?,
+	NextShuffle: number?,
 }
 
 -- Redcoat strength for the current wave (see Config.GetDifficulty).
@@ -2530,6 +2932,14 @@ local BLACK = Color3.fromRGB(25, 25, 25)
 local WOOD = Color3.fromRGB(105, 70, 40)
 local STEEL = Color3.fromRGB(120, 120, 125)
 local GOLD = Color3.fromRGB(214, 172, 60)
+local CIVILIAN_CLOTH = {
+	Color3.fromRGB(110, 75, 50),
+	Color3.fromRGB(70, 90, 60),
+	Color3.fromRGB(130, 60, 45),
+	Color3.fromRGB(60, 70, 100),
+	Color3.fromRGB(150, 130, 100),
+	Color3.fromRGB(90, 60, 80),
+}
 local BUFF = Color3.fromRGB(226, 214, 180)
 
 ---------------------------------------------------------------------------
@@ -2638,6 +3048,11 @@ local function addHat(model: Model, root: BasePart, hat: string, headY: number, 
 	elseif hat == "Helmet" then
 		addPart(model, root, "Helmet", Vector3.new(1.25, 0.8, 1.35), CFrame.new(0, headY + 0.7, 0), BLACK, Enum.Material.Metal)
 		addPart(model, root, "Plume", Vector3.new(0.35, 0.6, 1.2), CFrame.new(0, headY + 1.25, 0.1), def.CoatColor, Enum.Material.Fabric)
+	elseif hat == "MobCap" then
+		addPart(model, root, "MobCap", Vector3.new(1.3, 0.6, 1.3), CFrame.new(0, headY + 0.5, 0.05), WHITE, Enum.Material.Fabric)
+	elseif hat == "StrawHat" then
+		addPart(model, root, "StrawBrim", Vector3.new(2.3, 0.2, 2.3), CFrame.new(0, headY + 0.6, 0), Color3.fromRGB(215, 190, 120), Enum.Material.Fabric)
+		addPart(model, root, "StrawCrown", Vector3.new(1.1, 0.55, 1.1), CFrame.new(0, headY + 0.85, 0), Color3.fromRGB(215, 190, 120), Enum.Material.Fabric)
 	elseif hat == "Cap" then
 		addPart(model, root, "Cap", Vector3.new(1.2, 0.7, 1.2), CFrame.new(0, headY + 0.75, 0), BLACK, Enum.Material.Fabric)
 	end
@@ -2705,17 +3120,54 @@ local function buildSoldier(kind: string, def: Config.UnitDef, cf: CFrame): Unit
 	local coat = def.CoatColor
 	local breeches = if def.Team == "Red" then WHITE else BUFF
 
-	-- Legs and boots.
-	for _, x in { -0.5, 0.5 } do
-		addPart(model, root, "Leg", Vector3.new(0.85, 1.6, 0.85) * s, CFrame.new(x * s, -1.0 * s, 0), breeches)
-		addPart(model, root, "Boot", Vector3.new(0.9, 0.9, 1.0) * s, CFrame.new(x * s, -2.05 * s, -0.05 * s), BLACK)
+	local outfit = def.Outfit
+	if outfit == "Farmer" then
+		breeches = Color3.fromRGB(120, 100, 75)
+	end
+
+	-- Legs swing from the hip: clients animate the weld while the unit walks
+	-- (see client/UnitAnimator). Boots are welded to the leg so they follow.
+	for i, x in { -0.5, 0.5 } do
+		local legSize = Vector3.new(0.85, 1.6, 0.85) * s
+		local hip = CFrame.new(x * s, -0.2 * s, 0)
+		local leg, legWeld = addPosable(model, root, if i == 1 then "LeftLeg" else "RightLeg", legSize, hip * CFrame.new(0, -legSize.Y / 2, 0), breeches)
+		legWeld:SetAttribute("Hip", hip)
+		legWeld:SetAttribute("HalfLength", legSize.Y / 2)
+		CollectionService:AddTag(legWeld, "UnitLeg")
+		local boot = Instance.new("Part")
+		boot.Name = "Boot"
+		boot.Size = Vector3.new(0.9, 0.9, 1.0) * s
+		boot.Color = BLACK
+		boot.Material = Enum.Material.SmoothPlastic
+		boot.CanCollide = false
+		boot.CanQuery = false
+		boot.CanTouch = false
+		boot.Massless = true
+		boot.CFrame = leg.CFrame * CFrame.new(0, -1.05 * s, -0.05 * s)
+		local bw = Instance.new("WeldConstraint")
+		bw.Part0 = leg
+		bw.Part1 = boot
+		bw.Parent = boot
+		boot.Parent = model
 	end
 	-- Body.
 	addPart(model, root, "Torso", Vector3.new(2, 2, 1) * s, CFrame.new(0, 0.8 * s, 0), coat, Enum.Material.Fabric)
-	addPart(model, root, "Tails", Vector3.new(2.05, 0.8, 1.05) * s, CFrame.new(0, -0.5 * s, 0.05 * s), coat, Enum.Material.Fabric)
-	local beltColor = WHITE
-	for _, a in { 38, -38 } do
-		addPart(model, root, "Crossbelt", Vector3.new(0.3, 2.5, 0.08) * s, CFrame.new(0, 0.8 * s, -0.53 * s) * CFrame.Angles(0, 0, math.rad(a)), beltColor)
+	if outfit == "Woman" then
+		addPart(model, root, "Skirt", Vector3.new(2.3, 2.5, 1.5) * s, CFrame.new(0, -1.2 * s, 0), coat:Lerp(BLACK, 0.15), Enum.Material.Fabric)
+		addPart(model, root, "Apron", Vector3.new(1.4, 2.1, 0.1) * s, CFrame.new(0, -1.1 * s, -0.78 * s), WHITE, Enum.Material.Fabric)
+	else
+		addPart(model, root, "Tails", Vector3.new(2.05, 0.8, 1.05) * s, CFrame.new(0, -0.5 * s, 0.05 * s), coat, Enum.Material.Fabric)
+	end
+	if outfit then
+		-- Townsfolk: a waistcoat and a powder-horn strap instead of crossbelts.
+		if outfit ~= "Woman" then
+			addPart(model, root, "Waistcoat", Vector3.new(1.2, 1.6, 0.08) * s, CFrame.new(0, 0.8 * s, -0.53 * s), coat:Lerp(WHITE, 0.45), Enum.Material.Fabric)
+		end
+		addPart(model, root, "Strap", Vector3.new(0.22, 2.5, 0.08) * s, CFrame.new(0, 0.8 * s, -0.56 * s) * CFrame.Angles(0, 0, math.rad(38)), Color3.fromRGB(90, 60, 35), Enum.Material.Leather)
+	else
+		for _, a in { 38, -38 } do
+			addPart(model, root, "Crossbelt", Vector3.new(0.3, 2.5, 0.08) * s, CFrame.new(0, 0.8 * s, -0.53 * s) * CFrame.Angles(0, 0, math.rad(a)), WHITE)
+		end
 	end
 	-- Head.
 	local headY = 2.35 * s
@@ -3009,7 +3461,24 @@ function Units.Spawn(kind: string, position: Vector3, facing: Vector3, owner: Pl
 	end
 	if def.Team == "Blue" then
 		unit.Bar.BackgroundColor3 = Color3.fromRGB(80, 140, 230)
-		unit.Bar.Parent.Visible = true
+		-- Minutemen always show health; townsfolk only once hurt.
+		unit.Bar.Parent.Visible = not def.Civilian
+	end
+	if def.Civilian then
+		local cloth = CIVILIAN_CLOTH[math.random(1, #CIVILIAN_CLOTH)]
+		for _, name in { "Torso", "Tails", "LeftArm", "RightArm", "Skirt" } do
+			local p = unit.Model:FindFirstChild(name)
+			if p and p:IsA("BasePart") then
+				p.Color = if name == "Skirt" then cloth:Lerp(BLACK, 0.15) else cloth
+			end
+		end
+		unit.Home = flat(position)
+		unit.SlotAngle = math.random() -- used as a personal spread along the stockade
+		unit.WanderWait = now() + math.random() * 3
+	elseif def.Team == "Blue" then
+		unit.SlotAngle = math.random() * math.pi * 2
+		unit.SlotRadius = Config.Allies.FollowRadius[1] + math.random() * (Config.Allies.FollowRadius[2] - Config.Allies.FollowRadius[1])
+		unit.NextShuffle = now() + 2
 	end
 	unit.Model.Parent = if def.Team == "Red" then redFolder else blueFolder
 
@@ -3664,6 +4133,166 @@ local function updateFormationMember(unit: Unit, dt: number)
 	end
 end
 
+-- Too close to shoot comfortably: stab with the bayonet. Returns true if used.
+local function tryBayonet(unit: Unit, target: Target): boolean
+	local bayonet = Config.Bayonet
+	local t = now()
+	if unit.Def.Attack ~= "Musket" or target.Kind == "Stores" or target.Distance > bayonet.Range or t < (unit.NextBayonet or 0) then
+		return false
+	end
+	local pos = unit.Root.Position
+	local dir = flatUnit(target.Position - pos, unit.Facing)
+	unit.NextBayonet = t + bayonet.Cooldown
+	faceTowards(unit, dir, 1)
+	FX.Slash(pos, dir)
+	if target.Kind == "Player" and target.Humanoid then
+		target.Humanoid:TakeDamage(bayonet.Damage * damageMult(unit))
+	elseif target.Kind == "Unit" and target.Unit then
+		Units.Damage(target.Unit, bayonet.Damage, unit.Owner)
+	end
+	return true
+end
+
+local villageParams = RaycastParams.new()
+villageParams.FilterType = Enum.RaycastFilterType.Include
+
+-- True if a soldier-sized body can walk straight from `from` to `to`.
+local function clearPath(from: Vector3, to: Vector3): boolean
+	local origin = Vector3.new(from.X, Config.ShotHeight, from.Z)
+	local delta = Vector3.new(to.X, Config.ShotHeight, to.Z) - origin
+	if delta.Magnitude < 0.5 then
+		return true
+	end
+	return workspace:Spherecast(origin, 1.3, delta, villageParams) == nil
+end
+
+-- Where a minuteman wants to stand: a loose spot around his player that
+-- shuffles every so often, pulled in if a wall is in the way.
+local function militiaSpot(unit: Unit): Vector3?
+	local owner = unit.Owner
+	local char = owner and owner.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not root or not hum or hum.Health <= 0 then
+		return nil
+	end
+	local t = now()
+	if t >= (unit.NextShuffle or 0) then
+		local cfg = Config.Allies
+		unit.SlotAngle = (unit.SlotAngle or 0) + math.rad(math.random(-50, 50))
+		unit.SlotRadius = cfg.FollowRadius[1] + math.random() * (cfg.FollowRadius[2] - cfg.FollowRadius[1])
+		unit.NextShuffle = t + cfg.ShuffleTime[1] + math.random() * (cfg.ShuffleTime[2] - cfg.ShuffleTime[1])
+	end
+	local center = flat(root.Position)
+	local angle = unit.SlotAngle :: number
+	local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * (unit.SlotRadius :: number)
+	local hit = workspace:Raycast(Vector3.new(center.X, Config.ShotHeight, center.Z), offset, coverParams)
+	if hit then
+		offset = offset.Unit * math.max(2, (flat(hit.Position) - center).Magnitude - 2.5)
+	end
+	return center + offset
+end
+
+local function pickWanderSpot(from: Vector3): Vector3?
+	local cfg = Config.Townsfolk
+	for _ = 1, 8 do
+		local candidate: Vector3
+		if math.random() < 0.6 then
+			candidate = from + Vector3.new(math.random(-16, 16), 0, math.random(-16, 16))
+		else
+			candidate = Vector3.new(math.random(cfg.MinX, cfg.MaxX), 0, math.random(cfg.MinZ, cfg.MaxZ))
+		end
+		candidate = Vector3.new(math.clamp(candidate.X, cfg.MinX, cfg.MaxX), 0, math.clamp(candidate.Z, cfg.MinZ, cfg.MaxZ))
+		if clearPath(from, candidate) then
+			return candidate
+		end
+	end
+	return nil
+end
+
+-- Minutemen and armed townsfolk.
+local function updateBlue(unit: Unit, dt: number)
+	local def = unit.Def
+	local pos = unit.Root.Position
+	local t = now()
+	local civilian = def.Civilian == true
+
+	local target = nearestHostile("Blue", pos, if civilian then 85 else 110)
+	local los = false
+	if target then
+		if tryBayonet(unit, target) then
+			return
+		end
+		los = hasLineOfSight(pos, target.Position)
+		if target.Distance <= def.Range and los and t >= unit.NextAttack then
+			if civilian and t >= (unit.NextShout or 0) then
+				unit.NextShout = t + 12 + math.random() * 10
+				local lines = Config.Townsfolk.Shouts
+				shout(unit, lines[math.random(1, #lines)], 2)
+			end
+			beginAim(unit, target, aimTimeFor(unit))
+			return
+		end
+	end
+
+	-- Decide where to stand.
+	local goal: Vector3? = nil
+	local tolerance = 2.5
+	local speed = def.Speed
+	if civilian then
+		local stockade = Config.Townsfolk.StockadeZ
+		if target then
+			-- Advance to the stockade to get a shot, but never past it.
+			if target.Distance > def.Range or not los then
+				-- Head for the nearest firing gap in the stockade if the
+				-- stakes are in the way.
+				local x = pos.X
+				if not los then
+					local best = math.huge
+					for _, gap in Config.Townsfolk.StockadeGaps do
+						if math.abs(gap - pos.X) < math.abs(best - pos.X) then
+							best = gap
+						end
+					end
+					x = best + ((unit.SlotAngle or 0) % 1 - 0.5) * 6
+				end
+				goal = Vector3.new(x, 0, math.max(stockade, pos.Z - 8))
+			end
+			unit.WanderTarget = nil
+		else
+			if not unit.WanderTarget and t >= (unit.WanderWait or 0) then
+				unit.WanderTarget = pickWanderSpot(flat(pos))
+				unit.WanderWait = t + 3 + math.random() * 6
+			end
+			goal = unit.WanderTarget
+			tolerance = 1.2
+			speed = def.Speed * 0.7
+		end
+	else
+		goal = militiaSpot(unit) or (storesPosition() + Vector3.new(0, 0, -22))
+		tolerance = 3
+		local far = (flat(goal - pos)).Magnitude
+		if far > 20 then
+			speed = Config.Allies.CatchUpSpeed
+		elseif far > 8 then
+			speed = def.Speed * 1.4
+		end
+	end
+
+	if goal then
+		local toGoal = flat(goal - pos)
+		if toGoal.Magnitude > tolerance then
+			moveUnit(unit, toGoal.Unit, speed, dt)
+			return
+		elseif civilian and not target then
+			unit.WanderTarget = nil
+		end
+	end
+	if target then
+		faceTowards(unit, flatUnit(target.Position - pos, unit.Facing), dt)
+	end
+end
+
 local function updateIndividual(unit: Unit, dt: number)
 	local def = unit.Def
 	local pos = unit.Root.Position
@@ -3694,6 +4323,11 @@ local function updateIndividual(unit: Unit, dt: number)
 		return
 	end
 
+	if unit.Team == "Blue" then
+		updateBlue(unit, dt)
+		return
+	end
+
 	-- Soldiers from a broken line run before turning to fight.
 	if unit.ScatterUntil then
 		if t < unit.ScatterUntil and unit.ScatterDir then
@@ -3705,9 +4339,7 @@ local function updateIndividual(unit: Unit, dt: number)
 	end
 
 	local target: Target?
-	if unit.Team == "Blue" then
-		target = nearestHostile("Blue", pos, 130)
-	elseif def.Attack == "Sabre" then
+	if def.Attack == "Sabre" then
 		target = nearestHostile("Red", pos, 400, true) or nearestHostile("Red", pos, 160) or storesTarget(pos)
 	elseif def.Attack == "Cannon" then
 		target = nearestHostile("Red", pos, def.Range) or storesTarget(pos)
@@ -3716,34 +4348,13 @@ local function updateIndividual(unit: Unit, dt: number)
 	end
 
 	if not target then
-		-- Militia with nothing to shoot fall in beside their owner.
-		if unit.Team == "Blue" then
-			local owner = unit.Owner
-			local char = owner and owner.Character
-			local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-			local home = if root then root.Position else storesPosition() + Vector3.new(0, 0, -20)
-			local toHome = flat(home - pos)
-			if toHome.Magnitude > 12 then
-				moveUnit(unit, toHome.Unit, def.Speed, dt)
-			end
-		end
 		return
 	end
 
 	local toTarget = flat(target.Position - pos)
 	local dir = flatUnit(toTarget, unit.Facing)
 
-	-- Too close to shoot comfortably: use the bayonet.
-	local bayonet = Config.Bayonet
-	if def.Attack == "Musket" and target.Kind ~= "Stores" and target.Distance <= bayonet.Range and t >= (unit.NextBayonet or 0) then
-		unit.NextBayonet = t + bayonet.Cooldown
-		faceTowards(unit, dir, 1)
-		FX.Slash(pos, dir)
-		if target.Kind == "Player" and target.Humanoid then
-			target.Humanoid:TakeDamage(bayonet.Damage * damageMult(unit))
-		elseif target.Kind == "Unit" and target.Unit then
-			Units.Damage(target.Unit, bayonet.Damage, unit.Owner)
-		end
+	if tryBayonet(unit, target) then
 		return
 	end
 
@@ -3854,11 +4465,48 @@ function Units.RemoveOwnedBy(player: Player)
 	end
 end
 
+-- Top the village back up to its full roster of armed townsfolk.
+function Units.SpawnTownsfolk()
+	local alive: { [string]: number } = {}
+	for _, u in units do
+		if u.Def.Civilian and not u.Dead then
+			alive[u.Kind] = (alive[u.Kind] or 0) + 1
+		end
+	end
+	local cfg = Config.Townsfolk
+	for _, kind in cfg.Roster do
+		if (alive[kind] or 0) > 0 then
+			alive[kind] -= 1
+		else
+			local spot: Vector3? = nil
+			for _ = 1, 10 do
+				local candidate = Vector3.new(math.random(cfg.MinX, cfg.MaxX), 0, math.random(cfg.MinZ, cfg.MaxZ))
+				local box = workspace:GetPartBoundsInBox(CFrame.new(candidate.X, 2.5, candidate.Z), Vector3.new(3, 4, 3))
+				local free = true
+				for _, p in box do
+					if p:IsDescendantOf(coverFolder) or p:IsDescendantOf(storesModel) then
+						free = false
+						break
+					end
+				end
+				if free then
+					spot = candidate
+					break
+				end
+			end
+			if spot then
+				Units.Spawn(kind, spot, Vector3.new(0, 0, -1))
+			end
+		end
+	end
+end
+
 function Units.Init(map: Folder, stores: Model, state: Instance)
 	storesModel = stores
 	gameState = state
 	coverFolder = map:WaitForChild("Cover")
 	coverParams.FilterDescendantsInstances = { coverFolder }
+	villageParams.FilterDescendantsInstances = { coverFolder, storesModel }
 
 	redFolder = Instance.new("Folder")
 	redFolder.Name = "Redcoats"
@@ -3869,7 +4517,7 @@ function Units.Init(map: Folder, stores: Model, state: Instance)
 end
 
 return Units
-]]></ProtectedString></Properties></Item></Item><Item class="StarterPlayer" referent="RBX00000013"><Properties><string name="Name">StarterPlayer</string></Properties><Item class="StarterPlayerScripts" referent="RBX00000011"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX0000000D"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Redcoat Invasion client: top-down camera, mouse aiming and input.
+]]></ProtectedString></Properties></Item></Item><Item class="StarterPlayer" referent="RBX00000016"><Properties><string name="Name">StarterPlayer</string></Properties><Item class="StarterPlayerScripts" referent="RBX00000014"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX0000000E"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Redcoat Invasion client: top-down camera, mouse aiming and input.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -3882,6 +4530,8 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local Effects = require(script.Parent:WaitForChild("Effects"))
 local Interface = require(script.Parent:WaitForChild("Interface"))
 local Townsfolk = require(script.Parent:WaitForChild("Townsfolk"))
+local UnitAnimator = require(script.Parent:WaitForChild("UnitAnimator"))
+local LeaderboardUI = require(script.Parent:WaitForChild("LeaderboardUI"))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -3901,6 +4551,8 @@ end
 
 Effects.Init()
 Interface.Init()
+UnitAnimator.Init()
+LeaderboardUI.Init()
 -- Villagers are cosmetic; never let them break the rest of the client.
 task.spawn(function()
 	local ok, err = pcall(Townsfolk.Init)
@@ -4140,7 +4792,7 @@ end)
 ContextActionService:BindActionAtPriority("BlockJump", function()
 	return Enum.ContextActionResult.Sink
 end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Space)
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000E"><Properties><string name="Name">Effects</string><ProtectedString name="Source"><![CDATA[-- Draws the effects the server reports: musket smoke, tracers, grenades,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000F"><Properties><string name="Name">Effects</string><ProtectedString name="Source"><![CDATA[-- Draws the effects the server reports: musket smoke, tracers, grenades,
 -- explosions and cannon fire. Everything here is local and purely cosmetic.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -4385,7 +5037,7 @@ function Effects.Init()
 end
 
 return Effects
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000F"><Properties><string name="Name">Interface</string><ProtectedString name="Source"><![CDATA[-- HUD (health, ammo, wave info, powder stores), announcements, crosshair,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000010"><Properties><string name="Name">Interface</string><ProtectedString name="Source"><![CDATA[-- HUD (health, ammo, wave info, powder stores), announcements, crosshair,
 -- and the between-wave shop. Built entirely in code.
 
 local Players = game:GetService("Players")
@@ -4544,10 +5196,10 @@ local function buildHud()
 		Parent = gui,
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -8),
-		Size = UDim2.fromOffset(780, 18),
+		Size = UDim2.fromOffset(880, 18),
 		TextColor3 = Color3.new(1, 1, 1),
 		TextStrokeTransparency = 0.4,
-		Text = "WASD move  |  Shift sprint  |  Mouse aim  |  Click fire  |  R reload  |  F / Right-click hatchet  |  1-4 weapons  |  B shop",
+		Text = "WASD move  |  Shift sprint  |  L leaderboard  |  Mouse aim  |  Click fire  |  R reload  |  F / Right-click hatchet  |  1-4 weapons  |  B shop",
 	})
 
 	-- Announcement banner.
@@ -4876,16 +5528,20 @@ function Interface.Update()
 	local wave = gameState:GetAttribute("Wave") or 0
 	local final = gameState:GetAttribute("FinalWave") or Config.Rounds.FinalWave
 	local phaseEnd = gameState:GetAttribute("PhaseEnd") or 0
+	-- FinalWave is 0 in Endless mode.
+	local function waveText(n: number): string
+		return if final > 0 then ("Wave %d of %d"):format(n, final) else ("Endless - Wave %d"):format(n)
+	end
 
 	if phase == "Intermission" then
-		refs.WaveLabel.Text = ("Wave %d of %d approaching"):format(wave + 1, final)
+		refs.WaveLabel.Text = waveText(wave + 1) .. " approaching"
 		refs.PhaseLabel.Text = ("Prepare! The Regulars march in %s  -  press B to shop"):format(formatTime(phaseEnd - t))
 	elseif phase == "Wave" then
 		local name = gameState:GetAttribute("WaveName") or ""
-		refs.WaveLabel.Text = ("Wave %d of %d%s"):format(wave, final, if name ~= "" then ": " .. name else "")
+		refs.WaveLabel.Text = waveText(wave) .. (if name ~= "" then ": " .. name else "")
 		refs.PhaseLabel.Text = ("Redcoats remaining: %d"):format(gameState:GetAttribute("EnemiesLeft") or 0)
 	elseif phase == "GameOver" then
-		refs.WaveLabel.Text = "Defeat"
+		refs.WaveLabel.Text = if final > 0 then "Defeat" else ("Fell on wave %d"):format(wave)
 		refs.PhaseLabel.Text = ("A new battle begins in %s"):format(formatTime(phaseEnd - t))
 	elseif phase == "Victory" then
 		refs.WaveLabel.Text = "Victory!"
@@ -4978,7 +5634,283 @@ function Interface.Init()
 end
 
 return Interface
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000010"><Properties><string name="Name">Townsfolk</string><ProtectedString name="Source"><![CDATA[-- Townsfolk: cosmetic villagers that make the town feel alive. They run
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000011"><Properties><string name="Name">LeaderboardUI</string><ProtectedString name="Source"><![CDATA[-- Live leaderboard (press L) and the Campaign / Endless mode vote.
+
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+
+local LeaderboardUI = {}
+
+local player = Players.LocalPlayer
+local gameState = ReplicatedStorage:WaitForChild("GameState")
+local voteRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("VoteMode") :: RemoteEvent
+
+local PARCHMENT = Color3.fromRGB(236, 224, 196)
+local INK = Color3.fromRGB(45, 32, 22)
+local RED = Color3.fromRGB(190, 40, 35)
+local BLUE = Color3.fromRGB(40, 70, 140)
+local FADED = Color3.fromRGB(140, 125, 105)
+local FONT = Enum.Font.Antique
+local FONT_BOLD = Enum.Font.Garamond
+
+local function new(className: string, props: { [string]: any }, children: { Instance }?): any
+	local inst = Instance.new(className)
+	for k, v in props do
+		if k ~= "Parent" then
+			(inst :: any)[k] = v
+		end
+	end
+	for _, c in children or {} do
+		c.Parent = inst
+	end
+	inst.Parent = props.Parent
+	return inst
+end
+
+local function corner(r: number): UICorner
+	return new("UICorner", { CornerRadius = UDim.new(0, r) })
+end
+
+local function text(parent: Instance, props: { [string]: any }): TextLabel
+	local base: { [string]: any } = {
+		Parent = parent,
+		BackgroundTransparency = 1,
+		Font = FONT,
+		TextColor3 = INK,
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}
+	for k, v in props do
+		base[k] = v
+	end
+	return new("TextLabel", base)
+end
+
+---------------------------------------------------------------------------
+-- Leaderboard panel
+---------------------------------------------------------------------------
+
+local panel: Frame
+local liveList: Frame
+local topList: Frame
+local topTitle: TextLabel
+local modeLabel: TextLabel
+local bestLabel: TextLabel
+local visible = true
+
+local ROW_HEIGHT = 20
+
+local function clearRows(list: Frame)
+	for _, c in list:GetChildren() do
+		if c:IsA("Frame") then
+			c:Destroy()
+		end
+	end
+end
+
+-- columns: { text, widthScale, alignRight? }
+local function row(list: Frame, order: number, columns: { { any } }, color: Color3, bold: boolean?)
+	local r = new("Frame", {
+		Parent = list,
+		LayoutOrder = order,
+		Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
+		BackgroundTransparency = if order % 2 == 0 then 1 else 0.85,
+		BackgroundColor3 = Color3.fromRGB(200, 185, 155),
+		BorderSizePixel = 0,
+	})
+	local x = 0
+	for _, col in columns do
+		local width = col[2] :: number
+		text(r, {
+			Position = UDim2.new(x, 4, 0, 1),
+			Size = UDim2.new(width, -8, 1, -2),
+			Text = tostring(col[1]),
+			TextColor3 = color,
+			Font = if bold then FONT_BOLD else FONT,
+			TextXAlignment = if col[3] then Enum.TextXAlignment.Right else Enum.TextXAlignment.Left,
+		})
+		x += width
+	end
+end
+
+local function refreshLive()
+	clearRows(liveList)
+	local list = Players:GetPlayers()
+	table.sort(list, function(a, b)
+		return (a:GetAttribute("Score") or 0) > (b:GetAttribute("Score") or 0)
+	end)
+	row(liveList, 0, { { "#", 0.1 }, { "Militia", 0.46 }, { "Score", 0.24, true }, { "Kills", 0.2, true } }, FADED, true)
+	for i, p in list do
+		local char = p.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local alive = hum ~= nil and hum.Health > 0
+		local name = p.DisplayName .. (if alive then "" else " (fallen)")
+		local color = if p == player then BLUE elseif alive then INK else FADED
+		row(liveList, i, {
+			{ i, 0.1 },
+			{ name, 0.46 },
+			{ p:GetAttribute("Score") or 0, 0.24, true },
+			{ p:GetAttribute("Kills") or 0, 0.2, true },
+		}, color, p == player)
+	end
+end
+
+local function refreshTop()
+	clearRows(topList)
+	local source = gameState:GetAttribute("TopEndlessSource")
+	topTitle.Text = if source == "global" then "All-time Endless" else "Endless: best on this server"
+	local ok, rows = pcall(HttpService.JSONDecode, HttpService, gameState:GetAttribute("TopEndless") or "[]")
+	if not ok or typeof(rows) ~= "table" or #rows == 0 then
+		row(topList, 1, { { "No Endless runs yet. Be the first!", 1 } }, FADED)
+		return
+	end
+	row(topList, 0, { { "#", 0.1 }, { "Name", 0.46 }, { "Wave", 0.2, true }, { "Score", 0.24, true } }, FADED, true)
+	for i, r in rows do
+		local me = r.name == player.DisplayName
+		row(topList, i, { { i, 0.1 }, { r.name, 0.46 }, { r.wave, 0.2, true }, { r.score, 0.24, true } }, if me then BLUE elseif i == 1 then RED else INK, i == 1 or me)
+	end
+end
+
+local function refreshHeader()
+	local mode = gameState:GetAttribute("Mode") or "Campaign"
+	modeLabel.Text = if mode == "Endless" then "Mode: Endless" else ("Mode: Campaign (%d waves)"):format(gameState:GetAttribute("FinalWave") or 15)
+	local best = player:GetAttribute("BestWave") or 0
+	bestLabel.Text = if best > 0 then ("Your best Endless run: wave %d"):format(best) else ""
+end
+
+local function list(parent: Instance, order: number): Frame
+	return new("Frame", {
+		Parent = parent,
+		LayoutOrder = order,
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+	}, { new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }) })
+end
+
+local function buildPanel(gui: ScreenGui)
+	panel = new("Frame", {
+		Parent = gui,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -16, 0, 150),
+		Size = UDim2.fromOffset(290, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = PARCHMENT,
+		BackgroundTransparency = 0.08,
+	}, {
+		corner(8),
+		new("UIStroke", { Color = INK, Thickness = 3 }),
+		new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 10) }),
+		new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4) }),
+	})
+	text(panel, { LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 26), Font = FONT_BOLD, Text = "Leaderboard  (L)", TextXAlignment = Enum.TextXAlignment.Center })
+	modeLabel = text(panel, { LayoutOrder = 2, Size = UDim2.new(1, 0, 0, 16), Text = "", TextColor3 = RED, TextXAlignment = Enum.TextXAlignment.Center })
+	text(panel, { LayoutOrder = 3, Size = UDim2.new(1, 0, 0, 20), Font = FONT_BOLD, Text = "This battle" })
+	liveList = list(panel, 4)
+	topTitle = text(panel, { LayoutOrder = 5, Size = UDim2.new(1, 0, 0, 20), Font = FONT_BOLD, Text = "All-time Endless" })
+	topList = list(panel, 6)
+	bestLabel = text(panel, { LayoutOrder = 7, Size = UDim2.new(1, 0, 0, 16), Text = "", TextColor3 = BLUE })
+end
+
+---------------------------------------------------------------------------
+-- Mode vote
+---------------------------------------------------------------------------
+
+local votePanel: Frame
+local voteButtons: { [string]: TextButton } = {}
+
+local function buildVote(gui: ScreenGui)
+	votePanel = new("Frame", {
+		Parent = gui,
+		Position = UDim2.new(0, 16, 0, 150),
+		Size = UDim2.fromOffset(380, 96),
+		BackgroundColor3 = PARCHMENT,
+		BackgroundTransparency = 0.05,
+		Visible = false,
+	}, { corner(8), new("UIStroke", { Color = INK, Thickness = 3 }) })
+	text(votePanel, {
+		Position = UDim2.fromOffset(12, 6),
+		Size = UDim2.new(1, -24, 0, 22),
+		Font = FONT_BOLD,
+		Text = "Vote: how long will you hold out?",
+		TextXAlignment = Enum.TextXAlignment.Center,
+	})
+	for i, mode in { "Campaign", "Endless" } do
+		local b = new("TextButton", {
+			Parent = votePanel,
+			Position = UDim2.new((i - 1) * 0.5, 12, 0, 34),
+			Size = UDim2.new(0.5, -18, 0, 50),
+			BackgroundColor3 = if mode == "Endless" then RED else BLUE,
+			TextColor3 = Color3.new(1, 1, 1),
+			Font = FONT_BOLD,
+			TextScaled = true,
+			Text = mode,
+		}, { corner(6), new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }) })
+		b.Activated:Connect(function()
+			voteRemote:FireServer(mode)
+		end)
+		voteButtons[mode] = b
+	end
+end
+
+local function refreshVote()
+	local phase = gameState:GetAttribute("Phase")
+	local open = not gameState:GetAttribute("ModeLocked") and (phase == "Waiting" or phase == "Intermission")
+	votePanel.Visible = open
+	if not open then
+		return
+	end
+	local leading = gameState:GetAttribute("Mode")
+	local mine = player:GetAttribute("ModeVote")
+	local counts = {
+		Campaign = gameState:GetAttribute("VotesCampaign") or 0,
+		Endless = gameState:GetAttribute("VotesEndless") or 0,
+	}
+	local labels = { Campaign = "Campaign: 15 waves", Endless = "Endless + leaderboard" }
+	for mode, b in voteButtons do
+		b.Text = ("%s%s\n%d vote%s"):format(if mine == mode then "> " else "", labels[mode], counts[mode], if counts[mode] == 1 then "" else "s")
+		b.BackgroundTransparency = if leading == mode then 0 else 0.45
+	end
+end
+
+---------------------------------------------------------------------------
+
+function LeaderboardUI.Init()
+	local gui = new("ScreenGui", {
+		Name = "Leaderboard",
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		Parent = player:WaitForChild("PlayerGui"),
+	})
+	buildPanel(gui)
+	buildVote(gui)
+
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if not processed and input.KeyCode == Enum.KeyCode.L then
+			visible = not visible
+			panel.Visible = visible
+		end
+	end)
+
+	gameState:GetAttributeChangedSignal("TopEndless"):Connect(refreshTop)
+	gameState:GetAttributeChangedSignal("TopEndlessSource"):Connect(refreshTop)
+	refreshTop()
+
+	task.spawn(function()
+		while true do
+			refreshLive()
+			refreshHeader()
+			refreshVote()
+			task.wait(0.5)
+		end
+	end)
+end
+
+return LeaderboardUI
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000012"><Properties><string name="Name">Townsfolk</string><ProtectedString name="Source"><![CDATA[-- Townsfolk: cosmetic non-combatants (children, the crier, the blacksmith,
+-- the drummer boy and chickens) that make the town feel alive. They run
 -- entirely on each client (no network traffic): they wander the village,
 -- chat, and panic once the Regulars attack. They can't be shot or hurt.
 
@@ -5551,7 +6483,9 @@ function Townsfolk.Init()
 	folder.Name = "Townsfolk"
 	folder.Parent = workspace
 
-	local roles = { "Man", "Man", "Man", "Woman", "Woman", "Woman", "Woman", "Child", "Child", "Child", "Farmer", "Crier" }
+	-- Armed adult townsfolk are real server units now (see Units.SpawnTownsfolk);
+	-- these are the non-combatants.
+	local roles = { "Child", "Child", "Child", "Child", "Crier" }
 	for _, role in roles do
 		local start = pick(WAYPOINTS) + Vector3.new(math.random(-5, 5), 0, math.random(-5, 5))
 		local v = buildVillager(role, start)
@@ -5586,4 +6520,78 @@ function Townsfolk.Init()
 end
 
 return Townsfolk
-]]></ProtectedString></Properties></Item></Item><Item class="StarterCharacterScripts" referent="RBX00000012"><Properties><string name="Name">StarterCharacterScripts</string></Properties></Item></Item></roblox>
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000013"><Properties><string name="Name">UnitAnimator</string><ProtectedString name="Source"><![CDATA[-- Walk animation for soldiers and armed townsfolk. The server moves each unit
+-- by CFrame; here every client swings the leg welds (tagged "UnitLeg") based
+-- on how fast the unit is actually moving. Purely visual, no network cost.
+
+local CollectionService = game:GetService("CollectionService")
+local RunService = game:GetService("RunService")
+
+local UnitAnimator = {}
+
+type LegState = { Weld: Weld, Hip: CFrame, Half: number, Sign: number }
+type ModelState = { Root: BasePart, Legs: { LegState }, LastPos: Vector3, Phase: number, Swing: number }
+
+local models: { [Model]: ModelState } = {}
+
+local function track(weld: Instance)
+	if not weld:IsA("Weld") then
+		return
+	end
+	local model = weld:FindFirstAncestorOfClass("Model")
+	local root = model and model:FindFirstChild("Root")
+	local hip = weld:GetAttribute("Hip")
+	local half = weld:GetAttribute("HalfLength")
+	if not model or not root or not root:IsA("BasePart") or typeof(hip) ~= "CFrame" or typeof(half) ~= "number" then
+		return
+	end
+	local state = models[model]
+	if not state then
+		state = { Root = root, Legs = {}, LastPos = root.Position, Phase = math.random() * 6, Swing = 0 }
+		models[model] = state
+	end
+	local sign = if (weld.Part1 and weld.Part1.Name == "LeftLeg") then 1 else -1
+	table.insert(state.Legs, { Weld = weld, Hip = hip, Half = half, Sign = sign })
+end
+
+function UnitAnimator.Init()
+	for _, w in CollectionService:GetTagged("UnitLeg") do
+		track(w)
+	end
+	CollectionService:GetInstanceAddedSignal("UnitLeg"):Connect(function(w)
+		-- Attributes may arrive a moment after the tag.
+		task.defer(track, w)
+	end)
+
+	RunService.RenderStepped:Connect(function(dt)
+		if dt <= 0 then
+			return
+		end
+		for model, state in models do
+			if not model.Parent or not state.Root.Parent then
+				models[model] = nil
+				continue
+			end
+			local pos = state.Root.Position
+			local delta = Vector3.new(pos.X - state.LastPos.X, 0, pos.Z - state.LastPos.Z)
+			state.LastPos = pos
+			local speed = delta.Magnitude / dt
+			local walking = speed > 0.8 and not model:GetAttribute("Dead")
+			-- Ease the stride in and out so starting/stopping looks natural.
+			local targetSwing = if walking then math.rad(math.min(38, 10 + speed * 2)) else 0
+			state.Swing += (targetSwing - state.Swing) * math.min(1, dt * 10)
+			if walking then
+				state.Phase += dt * math.clamp(speed, 4, 26) * 0.9
+			end
+			local angle = math.sin(state.Phase) * state.Swing
+			for _, leg in state.Legs do
+				if leg.Weld.Parent then
+					leg.Weld.C0 = leg.Hip * CFrame.Angles(angle * leg.Sign, 0, 0) * CFrame.new(0, -leg.Half, 0)
+				end
+			end
+		end
+	end)
+end
+
+return UnitAnimator
+]]></ProtectedString></Properties></Item></Item><Item class="StarterCharacterScripts" referent="RBX00000015"><Properties><string name="Name">StarterCharacterScripts</string></Properties></Item></Item></roblox>

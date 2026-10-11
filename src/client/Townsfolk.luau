@@ -1,4 +1,5 @@
--- Townsfolk: cosmetic villagers that make the town feel alive. They run
+-- Townsfolk: cosmetic non-combatants (children, the crier, the blacksmith,
+-- the drummer boy and chickens) that make the town feel alive. They run
 -- entirely on each client (no network traffic): they wander the village,
 -- chat, and panic once the Regulars attack. They can't be shot or hurt.
 
@@ -571,7 +572,9 @@ function Townsfolk.Init()
 	folder.Name = "Townsfolk"
 	folder.Parent = workspace
 
-	local roles = { "Man", "Man", "Man", "Woman", "Woman", "Woman", "Woman", "Child", "Child", "Child", "Farmer", "Crier" }
+	-- Armed adult townsfolk are real server units now (see Units.SpawnTownsfolk);
+	-- these are the non-combatants.
+	local roles = { "Child", "Child", "Child", "Child", "Crier" }
 	for _, role in roles do
 		local start = pick(WAYPOINTS) + Vector3.new(math.random(-5, 5), 0, math.random(-5, 5))
 		local v = buildVillager(role, start)

@@ -141,6 +141,23 @@ Config.Upgrades = {
 Config.Allies = {
 	HireCost = 150,
 	MaxPerPlayer = 4,
+	-- Minutemen spread out in a loose ring around their player.
+	FollowRadius = { 7, 15 },
+	CatchUpSpeed = 26, -- when they fall far behind
+	ShuffleTime = { 6, 12 }, -- seconds between picking a new spot
+}
+
+-- Armed townsfolk respawned in the village every intermission.
+Config.Townsfolk = {
+	Roster = { "Townsman", "Townsman", "Townsman", "Townswoman", "Townswoman", "Townswoman", "Farmer" },
+	-- Village bounds they wander within; StockadeZ is the line they defend.
+	MinX = -85,
+	MaxX = 85,
+	MinZ = 95,
+	MaxZ = 165,
+	StockadeZ = 91,
+	StockadeGaps = { -44, 0, 44 }, -- x positions of the openings in the stakes
+	Shouts = { "For liberty!", "Get off my land!", "Huzzah!", "Leave us be!", "Not in my town!" },
 }
 
 -- Unit definitions shared by redcoats and hired militia.
@@ -157,8 +174,10 @@ export type UnitDef = {
 	AimTime: number,
 	Bounty: number,
 	CoatColor: Color3,
-	Hat: string, -- "Tricorne" | "Bearskin" | "Helmet" | "Cap" | "None"
+	Hat: string, -- "Tricorne" | "Bearskin" | "Helmet" | "Cap" | "MobCap" | "StrawHat" | "None"
 	Scale: number?,
+	Civilian: boolean?, -- armed townsfolk: stay in the village, defend from the stockade
+	Outfit: string?, -- civilians: "Man" | "Woman" | "Farmer"
 }
 
 Config.Units = {
@@ -268,6 +287,58 @@ Config.Units = {
 		CoatColor = Color3.fromRGB(32, 45, 100), -- Continental blue
 		Hat = "Tricorne",
 	},
+	-- Armed townsfolk who defend their homes.
+	Townsman = {
+		DisplayName = "Townsman",
+		Team = "Blue",
+		Health = 70,
+		Speed = 7,
+		Attack = "Musket",
+		Damage = 35,
+		Range = 75,
+		Reload = 7,
+		Spread = 6,
+		AimTime = 0.8,
+		Bounty = 0,
+		CoatColor = Color3.fromRGB(110, 75, 50),
+		Hat = "Tricorne",
+		Civilian = true,
+		Outfit = "Man",
+	},
+	Townswoman = {
+		DisplayName = "Townswoman",
+		Team = "Blue",
+		Health = 70,
+		Speed = 7,
+		Attack = "Musket",
+		Damage = 35,
+		Range = 75,
+		Reload = 7,
+		Spread = 6,
+		AimTime = 0.8,
+		Bounty = 0,
+		CoatColor = Color3.fromRGB(70, 90, 60),
+		Hat = "MobCap",
+		Civilian = true,
+		Outfit = "Woman",
+	},
+	Farmer = {
+		DisplayName = "Farmer",
+		Team = "Blue",
+		Health = 85,
+		Speed = 7,
+		Attack = "Musket",
+		Damage = 40,
+		Range = 75,
+		Reload = 7.5,
+		Spread = 5,
+		AimTime = 0.8,
+		Bounty = 0,
+		CoatColor = Color3.fromRGB(150, 130, 100),
+		Hat = "StrawHat",
+		Civilian = true,
+		Outfit = "Farmer",
+	},
 } :: { [string]: UnitDef }
 
 -- Officers make nearby redcoats reload faster.
@@ -300,14 +371,33 @@ function Config.GetDifficulty(wave: number): { Damage: number, Spread: number, R
 	local function lerp(a: number, b: number): number
 		return a + (b - a) * t
 	end
+	-- Endless: past the campaign's last wave the Regulars keep getting tougher.
+	local beyond = math.max(0, wave - Config.Rounds.FinalWave)
+	local e = Config.Endless
 	return {
-		Damage = lerp(first.Damage, 1),
+		Damage = lerp(first.Damage, 1) * (1 + e.DamagePerWave * beyond),
 		Spread = lerp(first.Spread, 1),
-		Reload = lerp(first.Reload, 1),
-		Health = lerp(first.Health, 1),
+		Reload = lerp(first.Reload, 1) * math.max(e.MinReload, 1 - e.ReloadPerWave * beyond),
+		Health = lerp(first.Health, 1) * (1 + e.HealthPerWave * beyond),
 		AimBonus = lerp(first.AimBonus, 0),
 	}
 end
+
+-- Endless mode: waves past FinalWave add units (up to the caps below, to keep
+-- servers smooth) and scale redcoat stats per extra wave.
+Config.Endless = {
+	HealthPerWave = 0.06,
+	DamagePerWave = 0.03,
+	ReloadPerWave = 0.015,
+	MinReload = 0.6,
+	MaxFormations = 4,
+	MaxLightInfantry = 22,
+	MaxGrenadiers = 12,
+	MaxDragoons = 12,
+	MaxCannons = 4,
+	SurviveScore = 25, -- score per wave survived (both modes)
+	WaveNames = { "The King's Wrath", "No Quarter", "The Long Night", "Redcoat Tide", "Last Stand at Concord" },
+}
 
 -- Wave composition. Line infantry spawn as formations (ranks of Regulars);
 -- everything else spawns individually across the north edge.
@@ -320,9 +410,14 @@ export type WaveDef = {
 	Name: string?,
 }
 
-function Config.GetWave(wave: number): WaveDef
+function Config.GetWave(wave: number, endless: boolean?): WaveDef
+	local e = Config.Endless
+	local beyond = math.max(0, wave - Config.Rounds.FinalWave)
 	local formations = {}
 	local formationCount = math.min(1 + math.floor((wave - 1) / 4), 3)
+	if beyond > 0 then
+		formationCount = math.min(3 + math.floor(beyond / 5), e.MaxFormations)
+	end
 	for i = 1, formationCount do
 		table.insert(formations, {
 			Ranks = if wave >= 11 then 2 else 1,
@@ -338,6 +433,12 @@ function Config.GetWave(wave: number): WaveDef
 		Dragoon = if wave >= 5 then math.floor((wave - 2) / 3) else 0,
 		Cannon = if wave >= 7 then 1 + math.floor((wave - 7) / 4) else 0,
 	}
+	if beyond > 0 then
+		def.LightInfantry = math.min(def.LightInfantry, e.MaxLightInfantry)
+		def.Grenadier = math.min(def.Grenadier + math.floor(beyond / 3), e.MaxGrenadiers)
+		def.Dragoon = math.min(def.Dragoon + math.floor(beyond / 3), e.MaxDragoons)
+		def.Cannon = math.min(def.Cannon, e.MaxCannons)
+	end
 
 	if wave == 1 then
 		def.Name = "The Regulars Are Coming!"
@@ -345,10 +446,12 @@ function Config.GetWave(wave: number): WaveDef
 		def.Name = "The King's Dragoons"
 	elseif wave == 10 then
 		def.Name = "Grenadiers Advance"
-	elseif wave == Config.Rounds.FinalWave then
+	elseif wave == Config.Rounds.FinalWave and not endless then
 		def.Name = "The Final Push"
 		def.Grenadier += 2
 		def.Dragoon += 2
+	elseif endless and wave >= Config.Rounds.FinalWave and wave % 5 == 0 then
+		def.Name = e.WaveNames[((wave // 5) % #e.WaveNames) + 1]
 	end
 
 	return def

@@ -157,10 +157,10 @@ local function buildHud()
 		Parent = gui,
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -8),
-		Size = UDim2.fromOffset(780, 18),
+		Size = UDim2.fromOffset(880, 18),
 		TextColor3 = Color3.new(1, 1, 1),
 		TextStrokeTransparency = 0.4,
-		Text = "WASD move  |  Shift sprint  |  Mouse aim  |  Click fire  |  R reload  |  F / Right-click hatchet  |  1-4 weapons  |  B shop",
+		Text = "WASD move  |  Shift sprint  |  L leaderboard  |  Mouse aim  |  Click fire  |  R reload  |  F / Right-click hatchet  |  1-4 weapons  |  B shop",
 	})
 
 	-- Announcement banner.
@@ -489,16 +489,20 @@ function Interface.Update()
 	local wave = gameState:GetAttribute("Wave") or 0
 	local final = gameState:GetAttribute("FinalWave") or Config.Rounds.FinalWave
 	local phaseEnd = gameState:GetAttribute("PhaseEnd") or 0
+	-- FinalWave is 0 in Endless mode.
+	local function waveText(n: number): string
+		return if final > 0 then ("Wave %d of %d"):format(n, final) else ("Endless - Wave %d"):format(n)
+	end
 
 	if phase == "Intermission" then
-		refs.WaveLabel.Text = ("Wave %d of %d approaching"):format(wave + 1, final)
+		refs.WaveLabel.Text = waveText(wave + 1) .. " approaching"
 		refs.PhaseLabel.Text = ("Prepare! The Regulars march in %s  -  press B to shop"):format(formatTime(phaseEnd - t))
 	elseif phase == "Wave" then
 		local name = gameState:GetAttribute("WaveName") or ""
-		refs.WaveLabel.Text = ("Wave %d of %d%s"):format(wave, final, if name ~= "" then ": " .. name else "")
+		refs.WaveLabel.Text = waveText(wave) .. (if name ~= "" then ": " .. name else "")
 		refs.PhaseLabel.Text = ("Redcoats remaining: %d"):format(gameState:GetAttribute("EnemiesLeft") or 0)
 	elseif phase == "GameOver" then
-		refs.WaveLabel.Text = "Defeat"
+		refs.WaveLabel.Text = if final > 0 then "Defeat" else ("Fell on wave %d"):format(wave)
 		refs.PhaseLabel.Text = ("A new battle begins in %s"):format(formatTime(phaseEnd - t))
 	elseif phase == "Victory" then
 		refs.WaveLabel.Text = "Victory!"

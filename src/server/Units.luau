@@ -7,6 +7,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
+local CollectionService = game:GetService("CollectionService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local FX = require(script.Parent:WaitForChild("FX"))
@@ -56,6 +57,13 @@ export type Unit = {
 	LastMoveTime: number?,
 	DetourDir: Vector3?,
 	DetourUntil: number?,
+	Home: Vector3?,
+	WanderTarget: Vector3?,
+	WanderWait: number?,
+	NextShout: number?,
+	SlotAngle: number?,
+	SlotRadius: number?,
+	NextShuffle: number?,
 }
 
 -- Redcoat strength for the current wave (see Config.GetDifficulty).
@@ -98,6 +106,14 @@ local BLACK = Color3.fromRGB(25, 25, 25)
 local WOOD = Color3.fromRGB(105, 70, 40)
 local STEEL = Color3.fromRGB(120, 120, 125)
 local GOLD = Color3.fromRGB(214, 172, 60)
+local CIVILIAN_CLOTH = {
+	Color3.fromRGB(110, 75, 50),
+	Color3.fromRGB(70, 90, 60),
+	Color3.fromRGB(130, 60, 45),
+	Color3.fromRGB(60, 70, 100),
+	Color3.fromRGB(150, 130, 100),
+	Color3.fromRGB(90, 60, 80),
+}
 local BUFF = Color3.fromRGB(226, 214, 180)
 
 ---------------------------------------------------------------------------
@@ -206,6 +222,11 @@ local function addHat(model: Model, root: BasePart, hat: string, headY: number, 
 	elseif hat == "Helmet" then
 		addPart(model, root, "Helmet", Vector3.new(1.25, 0.8, 1.35), CFrame.new(0, headY + 0.7, 0), BLACK, Enum.Material.Metal)
 		addPart(model, root, "Plume", Vector3.new(0.35, 0.6, 1.2), CFrame.new(0, headY + 1.25, 0.1), def.CoatColor, Enum.Material.Fabric)
+	elseif hat == "MobCap" then
+		addPart(model, root, "MobCap", Vector3.new(1.3, 0.6, 1.3), CFrame.new(0, headY + 0.5, 0.05), WHITE, Enum.Material.Fabric)
+	elseif hat == "StrawHat" then
+		addPart(model, root, "StrawBrim", Vector3.new(2.3, 0.2, 2.3), CFrame.new(0, headY + 0.6, 0), Color3.fromRGB(215, 190, 120), Enum.Material.Fabric)
+		addPart(model, root, "StrawCrown", Vector3.new(1.1, 0.55, 1.1), CFrame.new(0, headY + 0.85, 0), Color3.fromRGB(215, 190, 120), Enum.Material.Fabric)
 	elseif hat == "Cap" then
 		addPart(model, root, "Cap", Vector3.new(1.2, 0.7, 1.2), CFrame.new(0, headY + 0.75, 0), BLACK, Enum.Material.Fabric)
 	end
@@ -273,17 +294,54 @@ local function buildSoldier(kind: string, def: Config.UnitDef, cf: CFrame): Unit
 	local coat = def.CoatColor
 	local breeches = if def.Team == "Red" then WHITE else BUFF
 
-	-- Legs and boots.
-	for _, x in { -0.5, 0.5 } do
-		addPart(model, root, "Leg", Vector3.new(0.85, 1.6, 0.85) * s, CFrame.new(x * s, -1.0 * s, 0), breeches)
-		addPart(model, root, "Boot", Vector3.new(0.9, 0.9, 1.0) * s, CFrame.new(x * s, -2.05 * s, -0.05 * s), BLACK)
+	local outfit = def.Outfit
+	if outfit == "Farmer" then
+		breeches = Color3.fromRGB(120, 100, 75)
+	end
+
+	-- Legs swing from the hip: clients animate the weld while the unit walks
+	-- (see client/UnitAnimator). Boots are welded to the leg so they follow.
+	for i, x in { -0.5, 0.5 } do
+		local legSize = Vector3.new(0.85, 1.6, 0.85) * s
+		local hip = CFrame.new(x * s, -0.2 * s, 0)
+		local leg, legWeld = addPosable(model, root, if i == 1 then "LeftLeg" else "RightLeg", legSize, hip * CFrame.new(0, -legSize.Y / 2, 0), breeches)
+		legWeld:SetAttribute("Hip", hip)
+		legWeld:SetAttribute("HalfLength", legSize.Y / 2)
+		CollectionService:AddTag(legWeld, "UnitLeg")
+		local boot = Instance.new("Part")
+		boot.Name = "Boot"
+		boot.Size = Vector3.new(0.9, 0.9, 1.0) * s
+		boot.Color = BLACK
+		boot.Material = Enum.Material.SmoothPlastic
+		boot.CanCollide = false
+		boot.CanQuery = false
+		boot.CanTouch = false
+		boot.Massless = true
+		boot.CFrame = leg.CFrame * CFrame.new(0, -1.05 * s, -0.05 * s)
+		local bw = Instance.new("WeldConstraint")
+		bw.Part0 = leg
+		bw.Part1 = boot
+		bw.Parent = boot
+		boot.Parent = model
 	end
 	-- Body.
 	addPart(model, root, "Torso", Vector3.new(2, 2, 1) * s, CFrame.new(0, 0.8 * s, 0), coat, Enum.Material.Fabric)
-	addPart(model, root, "Tails", Vector3.new(2.05, 0.8, 1.05) * s, CFrame.new(0, -0.5 * s, 0.05 * s), coat, Enum.Material.Fabric)
-	local beltColor = WHITE
-	for _, a in { 38, -38 } do
-		addPart(model, root, "Crossbelt", Vector3.new(0.3, 2.5, 0.08) * s, CFrame.new(0, 0.8 * s, -0.53 * s) * CFrame.Angles(0, 0, math.rad(a)), beltColor)
+	if outfit == "Woman" then
+		addPart(model, root, "Skirt", Vector3.new(2.3, 2.5, 1.5) * s, CFrame.new(0, -1.2 * s, 0), coat:Lerp(BLACK, 0.15), Enum.Material.Fabric)
+		addPart(model, root, "Apron", Vector3.new(1.4, 2.1, 0.1) * s, CFrame.new(0, -1.1 * s, -0.78 * s), WHITE, Enum.Material.Fabric)
+	else
+		addPart(model, root, "Tails", Vector3.new(2.05, 0.8, 1.05) * s, CFrame.new(0, -0.5 * s, 0.05 * s), coat, Enum.Material.Fabric)
+	end
+	if outfit then
+		-- Townsfolk: a waistcoat and a powder-horn strap instead of crossbelts.
+		if outfit ~= "Woman" then
+			addPart(model, root, "Waistcoat", Vector3.new(1.2, 1.6, 0.08) * s, CFrame.new(0, 0.8 * s, -0.53 * s), coat:Lerp(WHITE, 0.45), Enum.Material.Fabric)
+		end
+		addPart(model, root, "Strap", Vector3.new(0.22, 2.5, 0.08) * s, CFrame.new(0, 0.8 * s, -0.56 * s) * CFrame.Angles(0, 0, math.rad(38)), Color3.fromRGB(90, 60, 35), Enum.Material.Leather)
+	else
+		for _, a in { 38, -38 } do
+			addPart(model, root, "Crossbelt", Vector3.new(0.3, 2.5, 0.08) * s, CFrame.new(0, 0.8 * s, -0.53 * s) * CFrame.Angles(0, 0, math.rad(a)), WHITE)
+		end
 	end
 	-- Head.
 	local headY = 2.35 * s
@@ -577,7 +635,24 @@ function Units.Spawn(kind: string, position: Vector3, facing: Vector3, owner: Pl
 	end
 	if def.Team == "Blue" then
 		unit.Bar.BackgroundColor3 = Color3.fromRGB(80, 140, 230)
-		unit.Bar.Parent.Visible = true
+		-- Minutemen always show health; townsfolk only once hurt.
+		unit.Bar.Parent.Visible = not def.Civilian
+	end
+	if def.Civilian then
+		local cloth = CIVILIAN_CLOTH[math.random(1, #CIVILIAN_CLOTH)]
+		for _, name in { "Torso", "Tails", "LeftArm", "RightArm", "Skirt" } do
+			local p = unit.Model:FindFirstChild(name)
+			if p and p:IsA("BasePart") then
+				p.Color = if name == "Skirt" then cloth:Lerp(BLACK, 0.15) else cloth
+			end
+		end
+		unit.Home = flat(position)
+		unit.SlotAngle = math.random() -- used as a personal spread along the stockade
+		unit.WanderWait = now() + math.random() * 3
+	elseif def.Team == "Blue" then
+		unit.SlotAngle = math.random() * math.pi * 2
+		unit.SlotRadius = Config.Allies.FollowRadius[1] + math.random() * (Config.Allies.FollowRadius[2] - Config.Allies.FollowRadius[1])
+		unit.NextShuffle = now() + 2
 	end
 	unit.Model.Parent = if def.Team == "Red" then redFolder else blueFolder
 
@@ -1232,6 +1307,166 @@ local function updateFormationMember(unit: Unit, dt: number)
 	end
 end
 
+-- Too close to shoot comfortably: stab with the bayonet. Returns true if used.
+local function tryBayonet(unit: Unit, target: Target): boolean
+	local bayonet = Config.Bayonet
+	local t = now()
+	if unit.Def.Attack ~= "Musket" or target.Kind == "Stores" or target.Distance > bayonet.Range or t < (unit.NextBayonet or 0) then
+		return false
+	end
+	local pos = unit.Root.Position
+	local dir = flatUnit(target.Position - pos, unit.Facing)
+	unit.NextBayonet = t + bayonet.Cooldown
+	faceTowards(unit, dir, 1)
+	FX.Slash(pos, dir)
+	if target.Kind == "Player" and target.Humanoid then
+		target.Humanoid:TakeDamage(bayonet.Damage * damageMult(unit))
+	elseif target.Kind == "Unit" and target.Unit then
+		Units.Damage(target.Unit, bayonet.Damage, unit.Owner)
+	end
+	return true
+end
+
+local villageParams = RaycastParams.new()
+villageParams.FilterType = Enum.RaycastFilterType.Include
+
+-- True if a soldier-sized body can walk straight from `from` to `to`.
+local function clearPath(from: Vector3, to: Vector3): boolean
+	local origin = Vector3.new(from.X, Config.ShotHeight, from.Z)
+	local delta = Vector3.new(to.X, Config.ShotHeight, to.Z) - origin
+	if delta.Magnitude < 0.5 then
+		return true
+	end
+	return workspace:Spherecast(origin, 1.3, delta, villageParams) == nil
+end
+
+-- Where a minuteman wants to stand: a loose spot around his player that
+-- shuffles every so often, pulled in if a wall is in the way.
+local function militiaSpot(unit: Unit): Vector3?
+	local owner = unit.Owner
+	local char = owner and owner.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not root or not hum or hum.Health <= 0 then
+		return nil
+	end
+	local t = now()
+	if t >= (unit.NextShuffle or 0) then
+		local cfg = Config.Allies
+		unit.SlotAngle = (unit.SlotAngle or 0) + math.rad(math.random(-50, 50))
+		unit.SlotRadius = cfg.FollowRadius[1] + math.random() * (cfg.FollowRadius[2] - cfg.FollowRadius[1])
+		unit.NextShuffle = t + cfg.ShuffleTime[1] + math.random() * (cfg.ShuffleTime[2] - cfg.ShuffleTime[1])
+	end
+	local center = flat(root.Position)
+	local angle = unit.SlotAngle :: number
+	local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * (unit.SlotRadius :: number)
+	local hit = workspace:Raycast(Vector3.new(center.X, Config.ShotHeight, center.Z), offset, coverParams)
+	if hit then
+		offset = offset.Unit * math.max(2, (flat(hit.Position) - center).Magnitude - 2.5)
+	end
+	return center + offset
+end
+
+local function pickWanderSpot(from: Vector3): Vector3?
+	local cfg = Config.Townsfolk
+	for _ = 1, 8 do
+		local candidate: Vector3
+		if math.random() < 0.6 then
+			candidate = from + Vector3.new(math.random(-16, 16), 0, math.random(-16, 16))
+		else
+			candidate = Vector3.new(math.random(cfg.MinX, cfg.MaxX), 0, math.random(cfg.MinZ, cfg.MaxZ))
+		end
+		candidate = Vector3.new(math.clamp(candidate.X, cfg.MinX, cfg.MaxX), 0, math.clamp(candidate.Z, cfg.MinZ, cfg.MaxZ))
+		if clearPath(from, candidate) then
+			return candidate
+		end
+	end
+	return nil
+end
+
+-- Minutemen and armed townsfolk.
+local function updateBlue(unit: Unit, dt: number)
+	local def = unit.Def
+	local pos = unit.Root.Position
+	local t = now()
+	local civilian = def.Civilian == true
+
+	local target = nearestHostile("Blue", pos, if civilian then 85 else 110)
+	local los = false
+	if target then
+		if tryBayonet(unit, target) then
+			return
+		end
+		los = hasLineOfSight(pos, target.Position)
+		if target.Distance <= def.Range and los and t >= unit.NextAttack then
+			if civilian and t >= (unit.NextShout or 0) then
+				unit.NextShout = t + 12 + math.random() * 10
+				local lines = Config.Townsfolk.Shouts
+				shout(unit, lines[math.random(1, #lines)], 2)
+			end
+			beginAim(unit, target, aimTimeFor(unit))
+			return
+		end
+	end
+
+	-- Decide where to stand.
+	local goal: Vector3? = nil
+	local tolerance = 2.5
+	local speed = def.Speed
+	if civilian then
+		local stockade = Config.Townsfolk.StockadeZ
+		if target then
+			-- Advance to the stockade to get a shot, but never past it.
+			if target.Distance > def.Range or not los then
+				-- Head for the nearest firing gap in the stockade if the
+				-- stakes are in the way.
+				local x = pos.X
+				if not los then
+					local best = math.huge
+					for _, gap in Config.Townsfolk.StockadeGaps do
+						if math.abs(gap - pos.X) < math.abs(best - pos.X) then
+							best = gap
+						end
+					end
+					x = best + ((unit.SlotAngle or 0) % 1 - 0.5) * 6
+				end
+				goal = Vector3.new(x, 0, math.max(stockade, pos.Z - 8))
+			end
+			unit.WanderTarget = nil
+		else
+			if not unit.WanderTarget and t >= (unit.WanderWait or 0) then
+				unit.WanderTarget = pickWanderSpot(flat(pos))
+				unit.WanderWait = t + 3 + math.random() * 6
+			end
+			goal = unit.WanderTarget
+			tolerance = 1.2
+			speed = def.Speed * 0.7
+		end
+	else
+		goal = militiaSpot(unit) or (storesPosition() + Vector3.new(0, 0, -22))
+		tolerance = 3
+		local far = (flat(goal - pos)).Magnitude
+		if far > 20 then
+			speed = Config.Allies.CatchUpSpeed
+		elseif far > 8 then
+			speed = def.Speed * 1.4
+		end
+	end
+
+	if goal then
+		local toGoal = flat(goal - pos)
+		if toGoal.Magnitude > tolerance then
+			moveUnit(unit, toGoal.Unit, speed, dt)
+			return
+		elseif civilian and not target then
+			unit.WanderTarget = nil
+		end
+	end
+	if target then
+		faceTowards(unit, flatUnit(target.Position - pos, unit.Facing), dt)
+	end
+end
+
 local function updateIndividual(unit: Unit, dt: number)
 	local def = unit.Def
 	local pos = unit.Root.Position
@@ -1262,6 +1497,11 @@ local function updateIndividual(unit: Unit, dt: number)
 		return
 	end
 
+	if unit.Team == "Blue" then
+		updateBlue(unit, dt)
+		return
+	end
+
 	-- Soldiers from a broken line run before turning to fight.
 	if unit.ScatterUntil then
 		if t < unit.ScatterUntil and unit.ScatterDir then
@@ -1273,9 +1513,7 @@ local function updateIndividual(unit: Unit, dt: number)
 	end
 
 	local target: Target?
-	if unit.Team == "Blue" then
-		target = nearestHostile("Blue", pos, 130)
-	elseif def.Attack == "Sabre" then
+	if def.Attack == "Sabre" then
 		target = nearestHostile("Red", pos, 400, true) or nearestHostile("Red", pos, 160) or storesTarget(pos)
 	elseif def.Attack == "Cannon" then
 		target = nearestHostile("Red", pos, def.Range) or storesTarget(pos)
@@ -1284,34 +1522,13 @@ local function updateIndividual(unit: Unit, dt: number)
 	end
 
 	if not target then
-		-- Militia with nothing to shoot fall in beside their owner.
-		if unit.Team == "Blue" then
-			local owner = unit.Owner
-			local char = owner and owner.Character
-			local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-			local home = if root then root.Position else storesPosition() + Vector3.new(0, 0, -20)
-			local toHome = flat(home - pos)
-			if toHome.Magnitude > 12 then
-				moveUnit(unit, toHome.Unit, def.Speed, dt)
-			end
-		end
 		return
 	end
 
 	local toTarget = flat(target.Position - pos)
 	local dir = flatUnit(toTarget, unit.Facing)
 
-	-- Too close to shoot comfortably: use the bayonet.
-	local bayonet = Config.Bayonet
-	if def.Attack == "Musket" and target.Kind ~= "Stores" and target.Distance <= bayonet.Range and t >= (unit.NextBayonet or 0) then
-		unit.NextBayonet = t + bayonet.Cooldown
-		faceTowards(unit, dir, 1)
-		FX.Slash(pos, dir)
-		if target.Kind == "Player" and target.Humanoid then
-			target.Humanoid:TakeDamage(bayonet.Damage * damageMult(unit))
-		elseif target.Kind == "Unit" and target.Unit then
-			Units.Damage(target.Unit, bayonet.Damage, unit.Owner)
-		end
+	if tryBayonet(unit, target) then
 		return
 	end
 
@@ -1422,11 +1639,48 @@ function Units.RemoveOwnedBy(player: Player)
 	end
 end
 
+-- Top the village back up to its full roster of armed townsfolk.
+function Units.SpawnTownsfolk()
+	local alive: { [string]: number } = {}
+	for _, u in units do
+		if u.Def.Civilian and not u.Dead then
+			alive[u.Kind] = (alive[u.Kind] or 0) + 1
+		end
+	end
+	local cfg = Config.Townsfolk
+	for _, kind in cfg.Roster do
+		if (alive[kind] or 0) > 0 then
+			alive[kind] -= 1
+		else
+			local spot: Vector3? = nil
+			for _ = 1, 10 do
+				local candidate = Vector3.new(math.random(cfg.MinX, cfg.MaxX), 0, math.random(cfg.MinZ, cfg.MaxZ))
+				local box = workspace:GetPartBoundsInBox(CFrame.new(candidate.X, 2.5, candidate.Z), Vector3.new(3, 4, 3))
+				local free = true
+				for _, p in box do
+					if p:IsDescendantOf(coverFolder) or p:IsDescendantOf(storesModel) then
+						free = false
+						break
+					end
+				end
+				if free then
+					spot = candidate
+					break
+				end
+			end
+			if spot then
+				Units.Spawn(kind, spot, Vector3.new(0, 0, -1))
+			end
+		end
+	end
+end
+
 function Units.Init(map: Folder, stores: Model, state: Instance)
 	storesModel = stores
 	gameState = state
 	coverFolder = map:WaitForChild("Cover")
 	coverParams.FilterDescendantsInstances = { coverFolder }
+	villageParams.FilterDescendantsInstances = { coverFolder, storesModel }
 
 	redFolder = Instance.new("Folder")
 	redFolder.Name = "Redcoats"
