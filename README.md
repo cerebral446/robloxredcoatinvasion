@@ -36,10 +36,33 @@ After you change files in `src/`, rebuild the place file with `python3 tools/bui
 | Left click | Fire. Hold it to keep firing as soon as you're loaded |
 | R | Reload (it also starts automatically when you're empty) |
 | F / Right click | Hatchet swing (melee) |
-| 1-4 | Switch between the firearms you own |
+| 1-5 | Switch between the firearms you own |
 | B | Open the shop (between waves only) |
 | L | Show or hide the leaderboard |
 | Mouse wheel | Zoom the camera |
+
+The game switches automatically to whatever you last used: mouse and keyboard,
+touch, or a controller.
+
+**Phones and tablets:** use Roblox's thumbstick on the left to move. The aim
+stick on the right aims; push it past the inner red ring to fire automatically.
+Next to it are buttons for Reload, Hatchet, Sprint (on/off) and Swap
+(next weapon), plus Shop and Board (leaderboard) on the right edge. On touch
+screens the health and weapon panels move to the top left, and the HUD shrinks
+to fit small screens.
+
+**Controllers:**
+
+| Button | Action |
+| --- | --- |
+| Left stick | Move |
+| Right stick | Aim (when released you face where you're walking) |
+| RT | Fire |
+| LT | Sprint |
+| X | Reload |
+| RB | Hatchet |
+| Y | Next weapon |
+| D-pad up / down | Shop / leaderboard |
 
 - **The first waves are gentle.** Early redcoats hit softer, miss more, reload
   slower and fall to one musket ball. They reach full strength by wave 8
@@ -104,6 +127,33 @@ field breaks and scatters, and every player gets a bonus. Tune him in
 - **Reinforcements:** hire up to 4 Minutemen who follow you and shoot redcoats, or
   repair the powder stores.
 
+### Power-ups
+
+Like the drops in *Call of Duty Zombies*, a killed redcoat sometimes leaves a
+glowing token (about 1 in 30, at most 4 per wave, and generals always drop one).
+Walk over it and it works for the whole team. Untouched tokens blink and vanish
+after 25 seconds.
+
+| Power-up | Effect |
+| --- | --- |
+| Bottomless Powder | No reloading for 20s |
+| Deadeye | Every shot kills for 20s (generals take triple damage) |
+| Double Bounty | Double money and score for 30s |
+| Field Surgeon | Heals everyone and brings fallen players back |
+| Powder Keg | Kills every redcoat within 110 studs, +$100 each |
+| Rebuild the Stores | Fully repairs the powder stores |
+| War Chest | +$150 for everyone |
+
+Timed power-ups show a countdown at the bottom of the screen. Tune them in
+`Config.Drops`.
+
+### Secrets
+
+*Spoiler.* On boss rounds, something behind the church starts to glow.
+Whoever finds it gets the **Ray Gun** (20 shots, splash damage) until the round
+ends. Each player can claim it once per boss round. The location is set by
+`Config.EasterEgg`.
+
 ## Game modes and leaderboard
 
 Before wave 1, players vote on the mode (panel at the top left):
@@ -164,6 +214,8 @@ src/server/FX.luau                Sends visual-effect events to clients
 src/client/Client.client.luau     Top-down camera, mouse aiming, input
 src/client/Interface.luau         HUD, announcements, crosshair and shop UI
 src/client/Effects.luau           Musket smoke, tracers, grenades, cannon fire, light flicker
+src/server/Powerups.luau          Power-up drops and the easter egg behind the church
+src/client/Controls.luau          Touch aim stick and buttons, controller bindings
 src/client/LeaderboardUI.luau     Live leaderboard panel and the mode vote
 src/client/UnitAnimator.luau      Leg animation for soldiers and townsfolk
 src/client/Townsfolk.luau         Cosmetic villagers and chickens (client-side only)

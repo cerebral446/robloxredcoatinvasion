@@ -56,6 +56,8 @@ export type WeaponDef = {
 	ReloadTime: number,
 	FireCooldown: number,
 	Description: string,
+	Hidden: boolean?, -- not sold in the shop (the ray gun)
+	Splash: number?, -- explosive radius on impact
 }
 
 Config.Weapons = {
@@ -110,6 +112,22 @@ Config.Weapons = {
 		ReloadTime = 3.6,
 		FireCooldown = 0.2,
 		Description = "Pennsylvania rifle. Deadly accurate, slow to load.",
+	},
+	-- Secret: found behind the church on boss rounds; lasts for that round only.
+	RayGun = {
+		Name = "Ray Gun",
+		Order = 5,
+		Price = 0,
+		Damage = 200,
+		Range = 160,
+		Spread = 1,
+		Pellets = 1,
+		Capacity = 20,
+		ReloadTime = 2.0,
+		FireCooldown = 0.25,
+		Description = "...where did this come from?",
+		Hidden = true,
+		Splash = 6,
 	},
 } :: { [string]: WeaponDef }
 
@@ -179,6 +197,34 @@ function Config.GetGeneral(wave: number): { Name: string, Title: string, Quote: 
 	local list = Config.Boss.Generals
 	return list[((wave // Config.Boss.Every - 1) % #list) + 1]
 end
+
+-- Power-up drops, Zombies-style. Redcoats sometimes drop one when killed;
+-- walk over it to trigger it for the whole team. Timed ones show on the HUD.
+Config.Drops = {
+	Chance = 0.035, -- per redcoat killed
+	MinGap = 10, -- seconds between drops
+	MaxPerWave = 4,
+	Lifetime = 25, -- seconds before an untouched drop vanishes
+	PickupRadius = 4.5,
+	Kinds = {
+		RapidFire = { Name = "Bottomless Powder", Text = "No reloading!", Duration = 20, Weight = 3, Color = Color3.fromRGB(255, 200, 60) },
+		Medic = { Name = "Field Surgeon", Text = "Everyone healed, the fallen rejoin!", Weight = 3, Color = Color3.fromRGB(240, 240, 240) },
+		InstaKill = { Name = "Deadeye", Text = "Every shot kills!", Duration = 20, Weight = 2, Color = Color3.fromRGB(230, 40, 40) },
+		DoubleBounty = { Name = "Double Bounty", Text = "Double money and score!", Duration = 30, Weight = 3, Color = Color3.fromRGB(80, 220, 90) },
+		Nuke = { Name = "Powder Keg", Text = "Boom!", Weight = 1, Color = Color3.fromRGB(255, 120, 30), Radius = 110, Payout = 100, BossDamage = 300 },
+		Rebuild = { Name = "Rebuild the Stores", Text = "The powder stores are repaired!", Weight = 2, Color = Color3.fromRGB(90, 160, 255) },
+		WarChest = { Name = "War Chest", Text = "+$150 for everyone!", Weight = 2, Color = Color3.fromRGB(214, 172, 60), Payout = 150 },
+	} :: { [string]: { Name: string, Text: string, Weight: number, Color: Color3, Duration: number?, Radius: number?, Payout: number?, BossDamage: number? } },
+	-- Generals always drop one of these.
+	BossDrops = { "Nuke", "Medic", "InstaKill" },
+}
+
+-- The easter egg behind the church.
+Config.EasterEgg = {
+	Position = Vector3.new(-33, 0, 47), -- tucked behind the church tower
+	PromptText = "Reach inside",
+	ObjectText = "Strange contraption",
+}
 
 -- Armed townsfolk respawned in the village every intermission.
 Config.Townsfolk = {
@@ -509,7 +555,7 @@ function Config.GetWave(wave: number, endless: boolean?): WaveDef
 end
 
 return Config
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ServerScriptService" referent="RBX0000000D"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="ModuleScript" referent="RBX00000006"><Properties><string name="Name">FX</string><ProtectedString name="Source"><![CDATA[-- Server -> client visual effects. The server decides *what* happened; every
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ServerScriptService" referent="RBX0000000E"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="ModuleScript" referent="RBX00000006"><Properties><string name="Name">FX</string><ProtectedString name="Source"><![CDATA[-- Server -> client visual effects. The server decides *what* happened; every
 -- client draws smoke, tracers, grenades and cannonballs locally.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -548,6 +594,11 @@ end
 
 function FX.Cannonball(from: Vector3, to: Vector3, duration: number)
 	effectRemote:FireAllClients("Cannonball", from, to, duration)
+end
+
+-- A power-up was collected (burst of coloured light + chime).
+function FX.Powerup(pos: Vector3, color: Color3)
+	effectRemote:FireAllClients("Powerup", pos, color)
 end
 
 function FX.Slash(pos: Vector3, dir: Vector3)
@@ -614,6 +665,7 @@ local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 local Units = require(script.Parent:WaitForChild("Units"))
 local PlayerManager = require(script.Parent:WaitForChild("PlayerManager"))
 local Leaderboard = require(script.Parent:WaitForChild("Leaderboard"))
+local Powerups = require(script.Parent:WaitForChild("Powerups"))
 
 task.spawn(Leaderboard.Init, gameState)
 
@@ -623,6 +675,7 @@ PlayerManager.Init(gameState, function()
 	local phase = gameState:GetAttribute("Phase")
 	return phase == "Intermission" or phase == "Waiting"
 end)
+Powerups.Init(gameState)
 
 local function now(): number
 	return workspace:GetServerTimeNow()
@@ -647,6 +700,9 @@ end
 clearBoss()
 
 Units.OnKill = function(killer, unit)
+	if unit.Team == "Red" then
+		Powerups.OnRedcoatKilled(unit)
+	end
 	if unit.Def.Boss then
 		-- The general is down: his whole army loses heart.
 		local name = gameState:GetAttribute("BossName") or "The general"
@@ -869,6 +925,8 @@ local function resetGame()
 	gameState:SetAttribute("ModeLocked", false)
 	gameState:SetAttribute("FinalWave", Config.Rounds.FinalWave)
 	clearBoss()
+	Powerups.Reset()
+	Powerups.SetBossRound(false)
 	table.clear(modeVotes)
 	for _, p in Players:GetPlayers() do
 		p:SetAttribute("ModeVote", nil)
@@ -946,7 +1004,12 @@ while true do
 			gameState:SetAttribute("FinalWave", if isEndless() then 0 else Config.Rounds.FinalWave)
 			FX.Announce(if isEndless() then "ENDLESS MODE: hold out as long as you can!" else "CAMPAIGN: survive 15 waves!", Color3.fromRGB(255, 220, 120))
 		end
+		Powerups.StartWave()
+		-- Boss rounds wake the contraption behind the church.
+		Powerups.SetBossRound(Config.GetGeneral(wave) ~= nil)
 		outcome = runWave(wave)
+		-- The ray gun only lasts for the round it was found in.
+		Powerups.SetBossRound(false)
 		if outcome == "Lost" then
 			break
 		end
@@ -1592,6 +1655,7 @@ type Data = {
 	Reloading: boolean,
 	Spawning: boolean,
 	Sprinting: boolean,
+	ReturnWeapon: string?,
 	LastFire: number,
 	LastMelee: number,
 	Upgrades: { [string]: number },
@@ -1600,7 +1664,7 @@ type Data = {
 local data: { [Player]: Data } = {}
 
 -- How far past the shot origin each weapon's visible muzzle sits.
-local MUZZLE_DISTANCE = { Musket = 3.6, LongRifle = 4.6, Blunderbuss = 2.6, Pistols = 1.2 }
+local MUZZLE_DISTANCE = { Musket = 3.6, LongRifle = 4.6, Blunderbuss = 2.6, Pistols = 1.2, RayGun = 1.4 }
 local gameState: Instance
 local canShop: () -> boolean = function()
 	return false
@@ -1622,6 +1686,12 @@ local function getRoot(player: Player): (BasePart?, Humanoid?)
 	end
 	return root, hum
 end
+
+-- Team-wide power-ups store their end time on GameState as "PU_<kind>".
+local function powerupActive(kind: string): boolean
+	return (gameState and gameState:GetAttribute("PU_" .. kind) or 0) > now()
+end
+PlayerManager.PowerupActive = powerupActive
 
 local function upgradeValue(d: Data, id: string): number
 	return (d.Upgrades[id] or 0) * Config.Upgrades[id].PerLevel
@@ -1697,6 +1767,12 @@ local function startReload(player: Player)
 		return
 	end
 	if not getRoot(player) then
+		return
+	end
+	if powerupActive("RapidFire") then
+		-- Bottomless Powder: no reloading at all.
+		d.Ammo[d.Equipped] = weapon.Capacity
+		sync(player)
 		return
 	end
 	d.Reloading = true
@@ -1778,9 +1854,23 @@ local function fire(player: Player, aimPoint: Vector3)
 			table.insert(ends, origin + dir * weapon.Range)
 		end
 	end
+	local deadeye = powerupActive("InstaKill")
 	for inst, dmg in pending do
+		local unit = Units.FromInstance(inst)
+		if deadeye and unit and unit.Team == "Red" then
+			-- Deadeye: one shot kills; generals take triple damage instead.
+			dmg = if unit.Def.Boss then dmg * 3 else unit.Health + 1
+		end
 		local flesh = Units.ApplyHit(inst, dmg, "Blue", player)
 		FX.Hit(hitAt[inst], flesh)
+		if weapon.Splash then
+			-- Small visual blast (big ones leave burning ground behind).
+			FX.Explosion(hitAt[inst], math.min(weapon.Splash, 4))
+			Units.AreaDamage(hitAt[inst], weapon.Splash, damage * 0.5, "Blue", nil, player)
+		end
+	end
+	if powerupActive("RapidFire") then
+		d.Ammo[d.Equipped] = weapon.Capacity
 	end
 	-- Draw smoke and tracers from the visible muzzle (unless something was
 	-- hit closer than that, e.g. when standing against a wall).
@@ -1791,7 +1881,7 @@ local function fire(player: Player, aimPoint: Vector3)
 		nearest = math.min(nearest, (e - origin).Magnitude)
 	end
 	fxOrigin = origin + forward * math.max(0, math.min(muzzle, nearest - 0.5))
-	FX.Shot(fxOrigin, ends, "Blue")
+	FX.Shot(fxOrigin, ends, if d.Equipped == "RayGun" then "Ray" else "Blue")
 
 	sync(player)
 	if d.Ammo[d.Equipped] <= 0 then
@@ -1819,7 +1909,11 @@ local function melee(player: Player)
 			delta = Vector3.new(delta.X, 0, delta.Z)
 			local reach = Config.Melee.Range + unit.Root.Size.Z / 2
 			if delta.Magnitude <= reach and (delta.Magnitude < 1 or delta.Unit:Dot(look) >= cosLimit) then
-				Units.Damage(unit, Config.Melee.Damage * (1 + upgradeValue(d, "Damage")), player)
+				local dmg = Config.Melee.Damage * (1 + upgradeValue(d, "Damage"))
+				if powerupActive("InstaKill") then
+					dmg = if unit.Def.Boss then dmg * 3 else unit.Health + 1
+				end
+				Units.Damage(unit, dmg, player)
 				FX.Hit(unit.Root.Position, true)
 			end
 		end
@@ -1853,6 +1947,9 @@ local function purchase(player: Player, kind: string, id: string?): (boolean, st
 		local weapon = Config.Weapons[id]
 		if not weapon then
 			return false, "Unknown weapon"
+		end
+		if weapon.Hidden and not d.Owned[id] then
+			return false, "That isn't for sale..."
 		end
 		if d.Owned[id] then
 			equip(player, id)
@@ -1947,6 +2044,22 @@ local function pistol(): { PieceDef }
 	}
 end
 
+-- A very out-of-period sidearm.
+local function rayGun(): { PieceDef }
+	local copper = Color3.fromRGB(190, 70, 50)
+	local glow = Color3.fromRGB(90, 255, 120)
+	return {
+		{ Vector3.new(0.3, 0.75, 0.45), CFrame.new(0, -0.3, 0.15) * CFrame.Angles(math.rad(-15), 0, 0), Color3.fromRGB(60, 60, 65), Enum.Material.Metal },
+		{ Vector3.new(0.5, 0.55, 1.2), CFrame.new(0, 0.15, -0.35), copper, Enum.Material.Metal },
+		{ Vector3.new(0.62, 0.62, 0.12), CFrame.new(0, 0.15, -0.7), glow, Enum.Material.Neon },
+		{ Vector3.new(0.5, 0.5, 0.12), CFrame.new(0, 0.15, -0.95), glow, Enum.Material.Neon },
+		{ Vector3.new(0.38, 0.38, 0.12), CFrame.new(0, 0.15, -1.18), glow, Enum.Material.Neon },
+		{ Vector3.new(0.22, 0.22, 0.6), CFrame.new(0, 0.15, -1.4), copper, Enum.Material.Metal },
+		{ Vector3.new(0.3, 0.3, 0.2), CFrame.new(0, 0.15, -1.75), glow, Enum.Material.Neon },
+		{ Vector3.new(0.12, 0.35, 0.8), CFrame.new(0, 0.55, -0.3), copper, Enum.Material.Metal },
+	}
+end
+
 -- Each weapon: which hand holds which piece set, and how far each arm swings
 -- inward (degrees) when raised to hold it.
 type Holder = { Hand: string, Pieces: { PieceDef } }
@@ -1964,6 +2077,7 @@ local WEAPON_MODELS: { [string]: WeaponModel } = {
 		RightYaw = 0,
 		LeftYaw = 0,
 	},
+	RayGun = { Holders = { { Hand = "Right", Pieces = rayGun() } }, RightYaw = 0, LeftYaw = -30 },
 }
 
 local NAVY = Color3.fromRGB(32, 45, 100)
@@ -2249,6 +2363,9 @@ function PlayerManager.AddKill(player: Player, reward: number)
 	local d = data[player]
 	if d then
 		d.Kills += 1
+		if powerupActive("DoubleBounty") then
+			reward *= 2
+		end
 		d.Money += reward
 		d.Score += reward
 		sync(player)
@@ -2260,6 +2377,54 @@ function PlayerManager.AddScore(player: Player, amount: number)
 	if d then
 		d.Score += amount
 		sync(player)
+	end
+end
+
+-- Fill every owned weapon and cancel any reload in progress.
+function PlayerManager.RefillAll(player: Player)
+	local d = data[player]
+	if not d then
+		return
+	end
+	cancelReload(player)
+	for id, owned in d.Owned do
+		if owned then
+			d.Ammo[id] = Config.Weapons[id].Capacity
+		end
+	end
+	sync(player)
+end
+
+-- The easter-egg ray gun: lent for the current (boss) round only.
+function PlayerManager.GiveRayGun(player: Player): boolean
+	local d = data[player]
+	if not d or d.Owned.RayGun or not getRoot(player) then
+		return false
+	end
+	d.Owned.RayGun = true
+	d.Ammo.RayGun = Config.Weapons.RayGun.Capacity
+	d.ReturnWeapon = d.Equipped
+	equip(player, "RayGun")
+	sync(player)
+	return true
+end
+
+function PlayerManager.TakeRayGuns()
+	for player, d in data do
+		if d.Owned.RayGun then
+			d.Owned.RayGun = nil
+			d.Ammo.RayGun = nil
+			if d.Equipped == "RayGun" then
+				local back = d.ReturnWeapon
+				if not back or not d.Owned[back] then
+					back = "Musket"
+				end
+				cancelReload(player)
+				d.Equipped = back
+				PlayerManager.DressCharacter(player)
+			end
+			sync(player)
+		end
 	end
 end
 
@@ -2351,7 +2516,327 @@ function PlayerManager.Init(state: Instance, shopOpen: () -> boolean)
 end
 
 return PlayerManager
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000B"><Properties><string name="Name">SetDressing</string><ProtectedString name="Source"><![CDATA[-- Atmosphere and set dressing: golden-hour lighting, fires, lanterns, flags,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000B"><Properties><string name="Name">Powerups</string><ProtectedString name="Source"><![CDATA[-- Power-up drops (Zombies-style) and the ray gun easter egg behind the church.
+--
+-- Drops: killed redcoats occasionally leave a glowing token. The first player
+-- to touch it triggers it for the whole team. Timed power-ups store their end
+-- time on GameState as "PU_<kind>" so the HUD and PlayerManager can read them.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local FX = require(script.Parent:WaitForChild("FX"))
+local Units = require(script.Parent:WaitForChild("Units"))
+local PlayerManager = require(script.Parent:WaitForChild("PlayerManager"))
+
+local Powerups = {}
+
+type Drop = { Kind: string, Model: Model, Position: Vector3, Expires: number }
+
+local gameState: Instance
+local folder: Folder
+local drops: { Drop } = {}
+local dropsThisWave = 0
+local lastDrop = 0
+local suppress = false -- no chain drops from a Powder Keg
+
+local function now(): number
+	return workspace:GetServerTimeNow()
+end
+
+local function pickKind(): string
+	local total = 0
+	for _, k in Config.Drops.Kinds do
+		total += k.Weight
+	end
+	local roll = math.random() * total
+	for id, k in Config.Drops.Kinds do
+		roll -= k.Weight
+		if roll <= 0 then
+			return id
+		end
+	end
+	return "WarChest"
+end
+
+local function buildToken(kind: string, pos: Vector3): Model
+	local def = Config.Drops.Kinds[kind]
+	local model = Instance.new("Model")
+	model.Name = "Drop_" .. kind
+	local core = Instance.new("Part")
+	core.Name = "Core"
+	core.Shape = Enum.PartType.Ball
+	core.Size = Vector3.one * 2.2
+	core.Color = def.Color
+	core.Material = Enum.Material.Neon
+	core.Anchored = true
+	core.CanCollide = false
+	core.CanQuery = false
+	core.CanTouch = false
+	core.CFrame = CFrame.new(pos.X, 3, pos.Z)
+	core.Parent = model
+	local ring = Instance.new("Part")
+	ring.Name = "Ring"
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(0.2, 3.6, 3.6)
+	ring.Color = def.Color
+	ring.Material = Enum.Material.Neon
+	ring.Transparency = 0.4
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CanQuery = false
+	ring.CanTouch = false
+	ring.CFrame = CFrame.new(pos.X, 3, pos.Z)
+	ring.Parent = model
+	local light = Instance.new("PointLight")
+	light.Color = def.Color
+	light.Range = 14
+	light.Brightness = 3
+	light.Parent = core
+
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.fromOffset(200, 30)
+	gui.StudsOffset = Vector3.new(0, 2.6, 0)
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.Garamond
+	label.TextScaled = true
+	label.TextColor3 = def.Color
+	label.TextStrokeTransparency = 0
+	label.Text = def.Name
+	label.Parent = gui
+	gui.Parent = core
+
+	model.PrimaryPart = core
+	model:SetAttribute("Kind", kind)
+	model:SetAttribute("Expires", now() + Config.Drops.Lifetime)
+	model.Parent = folder
+	return model
+end
+
+function Powerups.SpawnDrop(kind: string, pos: Vector3)
+	local model = buildToken(kind, pos)
+	table.insert(drops, { Kind = kind, Model = model, Position = Vector3.new(pos.X, 0, pos.Z), Expires = now() + Config.Drops.Lifetime })
+end
+
+-- Called for every redcoat killed.
+function Powerups.OnRedcoatKilled(unit: any)
+	if suppress or gameState:GetAttribute("Phase") ~= "Wave" then
+		return
+	end
+	local pos = unit.Root.Position
+	if unit.Def.Boss then
+		local list = Config.Drops.BossDrops
+		Powerups.SpawnDrop(list[math.random(1, #list)], pos)
+		return
+	end
+	local t = now()
+	if dropsThisWave >= Config.Drops.MaxPerWave or t - lastDrop < Config.Drops.MinGap then
+		return
+	end
+	if math.random() < Config.Drops.Chance then
+		dropsThisWave += 1
+		lastDrop = t
+		Powerups.SpawnDrop(pickKind(), pos)
+	end
+end
+
+local function trigger(kind: string, pos: Vector3, by: Player)
+	local def = Config.Drops.Kinds[kind]
+	FX.Powerup(pos, def.Color)
+	FX.Announce(("%s!  %s  (%s)"):format(def.Name:upper(), def.Text, by.DisplayName), def.Color)
+
+	if def.Duration then
+		gameState:SetAttribute("PU_" .. kind, now() + def.Duration)
+	end
+
+	if kind == "RapidFire" then
+		-- Top everyone up straight away.
+		for _, p in Players:GetPlayers() do
+			PlayerManager.RefillAll(p)
+		end
+	elseif kind == "Medic" then
+		for _, p in Players:GetPlayers() do
+			if PlayerManager.IsAlive(p) then
+				PlayerManager.ApplyStats(p, false)
+			else
+				task.spawn(PlayerManager.Spawn, p)
+			end
+		end
+	elseif kind == "Nuke" then
+		suppress = true
+		FX.Explosion(pos, 14)
+		for _, u in table.clone(Units.All()) do
+			if u.Team == "Red" and not u.Dead and (u.Root.Position - pos).Magnitude <= (def.Radius or 110) then
+				FX.Explosion(u.Root.Position, 4)
+				if u.Def.Boss then
+					Units.Damage(u, def.BossDamage or 300, by)
+				else
+					Units.Kill(u, nil)
+				end
+			end
+		end
+		suppress = false
+		for _, p in Players:GetPlayers() do
+			PlayerManager.AddMoney(p, def.Payout or 100)
+			PlayerManager.AddScore(p, def.Payout or 100)
+		end
+	elseif kind == "Rebuild" then
+		gameState:SetAttribute("StoresHealth", gameState:GetAttribute("StoresMax"))
+	elseif kind == "WarChest" then
+		for _, p in Players:GetPlayers() do
+			PlayerManager.AddMoney(p, def.Payout or 150)
+		end
+	end
+end
+
+local function step()
+	local t = now()
+	for i = #drops, 1, -1 do
+		local drop = drops[i]
+		local taken: Player? = nil
+		for _, c in Units.LivingCharacters() do
+			local d = Vector3.new(c.Root.Position.X - drop.Position.X, 0, c.Root.Position.Z - drop.Position.Z).Magnitude
+			if d <= Config.Drops.PickupRadius then
+				taken = c.Player
+				break
+			end
+		end
+		if taken then
+			table.remove(drops, i)
+			drop.Model:Destroy()
+			trigger(drop.Kind, drop.Position, taken)
+		elseif t >= drop.Expires then
+			table.remove(drops, i)
+			drop.Model:Destroy()
+		end
+	end
+end
+
+-- New wave: reset the drop budget.
+function Powerups.StartWave()
+	dropsThisWave = 0
+	lastDrop = 0
+end
+
+-- New game: remove tokens and timers.
+function Powerups.Reset()
+	for _, d in drops do
+		d.Model:Destroy()
+	end
+	table.clear(drops)
+	for kind in Config.Drops.Kinds do
+		gameState:SetAttribute("PU_" .. kind, 0)
+	end
+end
+
+---------------------------------------------------------------------------
+-- Easter egg: a strange contraption hidden behind the church tower. On boss
+-- rounds it hums to life and lends the Ray Gun to whoever reaches inside, for
+-- that round only.
+---------------------------------------------------------------------------
+
+local eggPrompt: ProximityPrompt
+local eggGlow: BasePart
+local eggLight: PointLight
+local claimed: { [Player]: boolean } = {}
+
+local function eggPart(props: { [string]: any }, parent: Instance): Part
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	for k, v in props do
+		(p :: any)[k] = v
+	end
+	p.Parent = parent
+	return p
+end
+
+local function buildEgg()
+	local base = Config.EasterEgg.Position
+	local model = Instance.new("Model")
+	model.Name = "OddContraption"
+	eggPart({ Name = "Stump", Size = Vector3.new(2.6, 1.6, 2.6), Shape = Enum.PartType.Cylinder, CFrame = CFrame.new(base + Vector3.new(0, 0.8, 0)) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(90, 65, 40), Material = Enum.Material.Wood, CanCollide = true }, model)
+	eggPart({ Name = "Housing", Size = Vector3.new(1.6, 1.2, 1.6), CFrame = CFrame.new(base + Vector3.new(0, 2.2, 0)), Color = Color3.fromRGB(150, 110, 60), Material = Enum.Material.Metal }, model)
+	eggPart({ Name = "Dial", Size = Vector3.new(0.1, 0.5, 0.5), Shape = Enum.PartType.Cylinder, CFrame = CFrame.new(base + Vector3.new(0.85, 2.2, 0)), Color = Color3.fromRGB(230, 220, 200), Material = Enum.Material.SmoothPlastic }, model)
+	eggGlow = eggPart({ Name = "Orb", Size = Vector3.one * 1.1, Shape = Enum.PartType.Ball, CFrame = CFrame.new(base + Vector3.new(0, 3.3, 0)), Color = Color3.fromRGB(60, 120, 70), Material = Enum.Material.Glass, Transparency = 0.2 }, model)
+	for _, x in { -0.6, 0.6 } do
+		eggPart({ Name = "Coil", Size = Vector3.new(0.15, 1.4, 0.15), CFrame = CFrame.new(base + Vector3.new(x, 3.2, 0)) * CFrame.Angles(0, 0, math.rad(x * 25)), Color = Color3.fromRGB(190, 120, 60), Material = Enum.Material.Metal }, model)
+	end
+	-- A couple of barrels half-hide it.
+	for _, offset in { Vector3.new(2.4, 0, 1.2), Vector3.new(-2.2, 0, 1.6) } do
+		eggPart({ Name = "Barrel", Size = Vector3.new(3, 2.2, 2.2), Shape = Enum.PartType.Cylinder, CFrame = CFrame.new(base + offset + Vector3.new(0, 1.5, 0)) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(110, 75, 45), Material = Enum.Material.Wood, CanCollide = true }, model)
+	end
+	eggLight = Instance.new("PointLight")
+	eggLight.Color = Color3.fromRGB(90, 255, 120)
+	eggLight.Range = 6
+	eggLight.Brightness = 0.4
+	eggLight.Parent = eggGlow
+
+	eggPrompt = Instance.new("ProximityPrompt")
+	eggPrompt.ActionText = Config.EasterEgg.PromptText
+	eggPrompt.ObjectText = Config.EasterEgg.ObjectText
+	eggPrompt.HoldDuration = 1
+	eggPrompt.MaxActivationDistance = 8
+	eggPrompt.RequiresLineOfSight = false
+	eggPrompt.GamepadKeyCode = Enum.KeyCode.ButtonB -- X is reload on controllers
+	eggPrompt.Enabled = false
+	eggPrompt.Parent = eggGlow
+	eggPrompt.Triggered:Connect(function(player)
+		if not eggPrompt.Enabled or claimed[player] then
+			return
+		end
+		if PlayerManager.GiveRayGun(player) then
+			claimed[player] = true
+			FX.Powerup(eggGlow.Position, Color3.fromRGB(90, 255, 120))
+			FX.Announce("You found the RAY GUN! It fades when this battle ends.", Color3.fromRGB(90, 255, 120), player)
+			for _, other in Players:GetPlayers() do
+				if other ~= player then
+					FX.Announce(("%s found something strange behind the church..."):format(player.DisplayName), Color3.fromRGB(90, 255, 120), other)
+				end
+			end
+		end
+	end)
+
+	local map = workspace:WaitForChild("Map")
+	model.Parent = map:WaitForChild("Decor")
+end
+
+-- Boss rounds wake the contraption; everything else puts it to sleep.
+function Powerups.SetBossRound(active: boolean)
+	table.clear(claimed)
+	eggPrompt.Enabled = active
+	eggGlow.Material = if active then Enum.Material.Neon else Enum.Material.Glass
+	eggGlow.Color = if active then Color3.fromRGB(90, 255, 120) else Color3.fromRGB(60, 120, 70)
+	eggLight.Brightness = if active then 3 else 0.4
+	eggLight.Range = if active then 14 else 6
+	if not active then
+		PlayerManager.TakeRayGuns()
+	end
+end
+
+function Powerups.Init(state: Instance)
+	gameState = state
+	folder = Instance.new("Folder")
+	folder.Name = "Drops"
+	folder.Parent = workspace
+	for kind in Config.Drops.Kinds do
+		gameState:SetAttribute("PU_" .. kind, 0)
+	end
+	buildEgg()
+	RunService.Heartbeat:Connect(step)
+end
+
+return Powerups
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000C"><Properties><string name="Name">SetDressing</string><ProtectedString name="Source"><![CDATA[-- Atmosphere and set dressing: golden-hour lighting, fires, lanterns, flags,
 -- the British redoubt, palisades, crates, barrels, haystacks and the forge.
 
 local CollectionService = game:GetService("CollectionService")
@@ -2913,7 +3398,7 @@ function SetDressing.Build(map: Folder, cover: Folder, decor: Folder, northZ: nu
 end
 
 return SetDressing
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000C"><Properties><string name="Name">Units</string><ProtectedString name="Source"><![CDATA[-- Redcoats and hired militia: model construction, AI, and damage handling.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000D"><Properties><string name="Name">Units</string><ProtectedString name="Source"><![CDATA[-- Redcoats and hired militia: model construction, AI, and damage handling.
 --
 -- Units are anchored models moved by CFrame every frame. That keeps dozens of
 -- soldiers cheap and lets line infantry hold tidy formations. Each unit's
@@ -3850,7 +4335,7 @@ function Units.ApplyHit(inst: Instance, damage: number, attackerTeam: string, at
 end
 
 -- Damage everything hostile to `attackerTeam` within radius of pos.
-function Units.AreaDamage(pos: Vector3, radius: number, damage: number, attackerTeam: string, storesMultiplier: number?)
+function Units.AreaDamage(pos: Vector3, radius: number, damage: number, attackerTeam: string, storesMultiplier: number?, attacker: Player?)
 	if attackerTeam == "Red" then
 		for _, c in livingCharacters() do
 			local d = (c.Root.Position - pos).Magnitude
@@ -3868,7 +4353,7 @@ function Units.AreaDamage(pos: Vector3, radius: number, damage: number, attacker
 		if u and not u.Dead and u.Team ~= attackerTeam then
 			local d = (u.Root.Position - pos).Magnitude
 			if d <= radius then
-				Units.Damage(u, damage * (1 - 0.5 * d / radius), nil)
+				Units.Damage(u, damage * (1 - 0.5 * d / radius), attacker)
 			end
 		end
 	end
@@ -4794,7 +5279,8 @@ function Units.Init(map: Folder, stores: Model, state: Instance)
 end
 
 return Units
-]]></ProtectedString></Properties></Item></Item><Item class="StarterPlayer" referent="RBX00000016"><Properties><string name="Name">StarterPlayer</string></Properties><Item class="StarterPlayerScripts" referent="RBX00000014"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX0000000E"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Redcoat Invasion client: top-down camera, mouse aiming and input.
+]]></ProtectedString></Properties></Item></Item><Item class="StarterPlayer" referent="RBX00000018"><Properties><string name="Name">StarterPlayer</string></Properties><Item class="StarterPlayerScripts" referent="RBX00000016"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX0000000F"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Redcoat Invasion client: top-down camera, aiming and input.
+-- Mouse + keyboard live here; touch and gamepad come from the Controls module.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -4809,6 +5295,7 @@ local Interface = require(script.Parent:WaitForChild("Interface"))
 local Townsfolk = require(script.Parent:WaitForChild("Townsfolk"))
 local UnitAnimator = require(script.Parent:WaitForChild("UnitAnimator"))
 local LeaderboardUI = require(script.Parent:WaitForChild("LeaderboardUI"))
+local Controls = require(script.Parent:WaitForChild("Controls"))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -4870,6 +5357,22 @@ local function mouseAimPoint(): Vector3?
 	return ray.Origin + ray.Direction * t
 end
 
+-- Twin-stick aiming (touch / gamepad): the last direction the aim stick
+-- pointed, or the direction of travel when the stick is released.
+local lastStickDir: Vector3? = nil
+
+local function aimPoint(): Vector3?
+	if Controls.GetMode() == "Mouse" then
+		return mouseAimPoint()
+	end
+	local _, root = getCharacter()
+	local dir = Controls.GetAimDirection() or lastStickDir
+	if not root or not dir then
+		return nil
+	end
+	return Vector3.new(root.Position.X, Config.ShotHeight, root.Position.Z) + dir * 40
+end
+
 UserInputService.InputChanged:Connect(function(input, processed)
 	if input.UserInputType == Enum.UserInputType.MouseWheel and not processed then
 		cameraHeight = math.clamp(cameraHeight - input.Position.Z * 6, MIN_HEIGHT, MAX_HEIGHT)
@@ -4883,7 +5386,7 @@ RunService:BindToRenderStep("RedcoatCamera", Enum.RenderPriority.Camera.Value + 
 	if root and hum and hum.Health > 0 then
 		target = root.Position
 		-- Peek slightly toward the cursor so you can see further ahead.
-		local aim = mouseAimPoint()
+		local aim = aimPoint()
 		if aim then
 			local lean = Vector3.new(aim.X - target.X, 0, aim.Z - target.Z)
 			if lean.Magnitude > 40 then
@@ -4901,12 +5404,18 @@ RunService:BindToRenderStep("RedcoatCamera", Enum.RenderPriority.Camera.Value + 
 	camera.FieldOfView = 60
 end)
 
--- Face the mouse.
+-- Face where we're aiming.
 RunService.RenderStepped:Connect(function()
 	local _, root, hum = getCharacter()
 	if root and hum and hum.Health > 0 and not Interface.IsShopOpen() then
 		hum.AutoRotate = false
-		local aim = mouseAimPoint()
+		local stick = Controls.GetAimDirection()
+		if stick then
+			lastStickDir = stick
+		elseif Controls.GetMode() ~= "Mouse" and hum.MoveDirection.Magnitude > 0.1 then
+			lastStickDir = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z).Unit
+		end
+		local aim = aimPoint()
 		if aim then
 			local flatAim = Vector3.new(aim.X, root.Position.Y, aim.Z)
 			if (flatAim - root.Position).Magnitude > 0.5 then
@@ -4981,7 +5490,7 @@ local function tryFire()
 	if not root or not hum or hum.Health <= 0 or Interface.IsShopOpen() then
 		return
 	end
-	local aim = mouseAimPoint()
+	local aim = aimPoint()
 	if aim then
 		fireRemote:FireServer(aim)
 	end
@@ -4992,6 +5501,7 @@ local WEAPON_KEYS = {
 	[Enum.KeyCode.Two] = 2,
 	[Enum.KeyCode.Three] = 3,
 	[Enum.KeyCode.Four] = 4,
+	[Enum.KeyCode.Five] = 5,
 }
 
 local function weaponBySlot(slot: number): string?
@@ -5001,6 +5511,30 @@ local function weaponBySlot(slot: number): string?
 		end
 	end
 	return nil
+end
+
+-- Next owned weapon (touch "Swap" button / controller Y).
+local function cycleWeapon()
+	local owned = {}
+	for id, w in Config.Weapons do
+		if player:GetAttribute("Owns_" .. id) then
+			table.insert(owned, { Id = id, Order = w.Order })
+		end
+	end
+	table.sort(owned, function(a, b)
+		return a.Order < b.Order
+	end)
+	if #owned < 2 then
+		return
+	end
+	local current = player:GetAttribute("Weapon")
+	for i, w in owned do
+		if w.Id == current then
+			equipRemote:FireServer(owned[i % #owned + 1].Id)
+			return
+		end
+	end
+	equipRemote:FireServer(owned[1].Id)
 end
 
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -5059,17 +5593,394 @@ end)
 task.spawn(function()
 	while true do
 		task.wait(0.15)
-		if triggerHeld and (player:GetAttribute("Ammo") or 0) > 0 and (player:GetAttribute("ReloadEnd") or 0) == 0 then
+		if (triggerHeld or Controls.IsFiring()) and (player:GetAttribute("Ammo") or 0) > 0 and (player:GetAttribute("ReloadEnd") or 0) == 0 then
 			tryFire()
 		end
 	end
 end)
 
+Controls.Init({
+	Reload = function()
+		reloadRemote:FireServer()
+	end,
+	Melee = function()
+		if not Interface.IsShopOpen() then
+			meleeRemote:FireServer()
+		end
+	end,
+	SetSprint = setSprint,
+	IsSprinting = function()
+		return sprinting
+	end,
+	CycleWeapon = cycleWeapon,
+	ToggleShop = Interface.ToggleShop,
+	ToggleBoard = LeaderboardUI.Toggle,
+	ModeChanged = function(mode: string)
+		Interface.SetInputMode(mode)
+		LeaderboardUI.SetInputMode(mode)
+	end,
+})
+
 -- No jumping in a top-down shooter; free up Space.
 ContextActionService:BindActionAtPriority("BlockJump", function()
 	return Enum.ContextActionResult.Sink
 end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Space)
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000F"><Properties><string name="Name">Effects</string><ProtectedString name="Source"><![CDATA[-- Draws the effects the server reports: musket smoke, tracers, grenades,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000010"><Properties><string name="Name">Controls</string><ProtectedString name="Source"><![CDATA[-- Touch and gamepad controls. Mouse + keyboard stay in Client.client.luau;
+-- this module adds a twin-stick scheme for phones/tablets (Roblox's own
+-- thumbstick moves, our right-hand stick aims and auto-fires) plus buttons,
+-- and controller bindings. It switches automatically with the last input used.
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local Controls = {}
+
+export type Handlers = {
+	Reload: () -> (),
+	Melee: () -> (),
+	SetSprint: (boolean) -> (),
+	IsSprinting: () -> boolean,
+	CycleWeapon: () -> (),
+	ToggleShop: () -> (),
+	ToggleBoard: () -> (),
+	ModeChanged: (string) -> (),
+}
+
+local player = Players.LocalPlayer
+local mode = "Mouse" -- "Mouse" | "Touch" | "Gamepad"
+local handlers: Handlers
+
+-- Aim state (flat world direction) from the touch stick or right thumbstick.
+local touchAim: Vector3? = nil
+local touchFiring = false
+local padAim: Vector3? = nil
+local padFiring = false
+
+local PARCHMENT = Color3.fromRGB(236, 224, 196)
+local INK = Color3.fromRGB(45, 32, 22)
+local FIRE_THRESHOLD = 0.55 -- push the stick past this fraction to fire
+local AIM_DEADZONE = 0.15
+
+-- The camera looks north with "up" on screen = -Z, "right" = +X, so a
+-- screen-space stick offset maps straight onto the ground plane.
+local function screenToWorld(v: Vector2): Vector3
+	return Vector3.new(v.X, 0, v.Y).Unit
+end
+
+function Controls.GetMode(): string
+	return mode
+end
+
+-- Flat aim direction from a stick, or nil when the mouse is in charge.
+function Controls.GetAimDirection(): Vector3?
+	if mode == "Touch" then
+		return touchAim
+	elseif mode == "Gamepad" then
+		return padAim
+	end
+	return nil
+end
+
+function Controls.IsFiring(): boolean
+	return (mode == "Touch" and touchFiring) or (mode == "Gamepad" and padFiring)
+end
+
+---------------------------------------------------------------------------
+-- Touch UI
+---------------------------------------------------------------------------
+
+local touchGui: ScreenGui
+local sprintButton: TextButton
+
+local function round(parent: Instance, name: string, text: string, size: number, position: UDim2, color: Color3): TextButton
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.AnchorPoint = Vector2.new(0.5, 0.5)
+	b.Position = position
+	b.Size = UDim2.fromOffset(size, size)
+	b.BackgroundColor3 = color
+	b.BackgroundTransparency = 0.25
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.TextStrokeTransparency = 0.4
+	b.Font = Enum.Font.Garamond
+	b.TextScaled = true
+	b.Text = text
+	b.AutoButtonColor = true
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0.5, 0)
+	c.Parent = b
+	local s = Instance.new("UIStroke")
+	s.Color = INK
+	s.Thickness = 2
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = b
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 6)
+	pad.PaddingRight = UDim.new(0, 6)
+	pad.PaddingTop = UDim.new(0, 10)
+	pad.PaddingBottom = UDim.new(0, 10)
+	pad.Parent = b
+	b.Parent = parent
+	return b
+end
+
+local function buildTouchUI()
+	touchGui = Instance.new("ScreenGui")
+	touchGui.Name = "TouchControls"
+	touchGui.ResetOnSpawn = false
+	-- Keep the default inset so AbsolutePosition matches touch positions.
+	touchGui.IgnoreGuiInset = false
+	touchGui.Enabled = false
+	touchGui.DisplayOrder = 5
+
+	local scale = Instance.new("UIScale")
+	scale.Parent = touchGui
+	local function rescale()
+		local vp = workspace.CurrentCamera.ViewportSize
+		scale.Scale = math.clamp(vp.Y / 480, 0.7, 1.25)
+	end
+	rescale()
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
+
+	-- Aim stick, bottom right.
+	local holder = Instance.new("Frame")
+	holder.Name = "AimArea"
+	holder.AnchorPoint = Vector2.new(1, 1)
+	holder.Position = UDim2.new(1, -24, 1, -24)
+	holder.Size = UDim2.fromOffset(170, 170)
+	holder.BackgroundTransparency = 1
+	holder.Parent = touchGui
+
+	local pad = Instance.new("Frame")
+	pad.Name = "AimPad"
+	pad.Size = UDim2.fromScale(1, 1)
+	pad.BackgroundColor3 = Color3.fromRGB(30, 22, 18)
+	pad.BackgroundTransparency = 0.55
+	pad.Active = true
+	pad.Parent = holder
+	local pc = Instance.new("UICorner")
+	pc.CornerRadius = UDim.new(0.5, 0)
+	pc.Parent = pad
+	local ps = Instance.new("UIStroke")
+	ps.Color = PARCHMENT
+	ps.Thickness = 2
+	ps.Transparency = 0.3
+	ps.Parent = pad
+	-- Inner ring marks where auto-fire starts.
+	local ring = Instance.new("Frame")
+	ring.AnchorPoint = Vector2.new(0.5, 0.5)
+	ring.Position = UDim2.fromScale(0.5, 0.5)
+	ring.Size = UDim2.fromScale(FIRE_THRESHOLD, FIRE_THRESHOLD)
+	ring.BackgroundTransparency = 1
+	ring.Parent = pad
+	local rc = Instance.new("UICorner")
+	rc.CornerRadius = UDim.new(0.5, 0)
+	rc.Parent = ring
+	local rs = Instance.new("UIStroke")
+	rs.Color = Color3.fromRGB(255, 120, 90)
+	rs.Thickness = 2
+	rs.Transparency = 0.4
+	rs.Parent = ring
+
+	local knob = Instance.new("Frame")
+	knob.Name = "Knob"
+	knob.AnchorPoint = Vector2.new(0.5, 0.5)
+	knob.Position = UDim2.fromScale(0.5, 0.5)
+	knob.Size = UDim2.fromOffset(64, 64)
+	knob.BackgroundColor3 = PARCHMENT
+	knob.BackgroundTransparency = 0.15
+	knob.Parent = pad
+	local kc = Instance.new("UICorner")
+	kc.CornerRadius = UDim.new(0.5, 0)
+	kc.Parent = knob
+	local kl = Instance.new("TextLabel")
+	kl.Size = UDim2.fromScale(1, 1)
+	kl.BackgroundTransparency = 1
+	kl.Font = Enum.Font.Garamond
+	kl.TextScaled = true
+	kl.TextColor3 = INK
+	kl.Text = "AIM"
+	kl.Parent = knob
+
+	local activeTouch: InputObject? = nil
+	pad.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch and not activeTouch then
+			activeTouch = input
+		end
+	end)
+	UserInputService.TouchEnded:Connect(function(input)
+		if input == activeTouch then
+			activeTouch = nil
+			touchAim = nil
+			touchFiring = false
+			knob.Position = UDim2.fromScale(0.5, 0.5)
+			kl.Text = "AIM"
+		end
+	end)
+	RunService.RenderStepped:Connect(function()
+		local input = activeTouch
+		if not input then
+			return
+		end
+		local center = pad.AbsolutePosition + pad.AbsoluteSize / 2
+		local radius = pad.AbsoluteSize.X / 2
+		local offset = Vector2.new(input.Position.X, input.Position.Y) - center
+		local amount = math.min(1, offset.Magnitude / radius)
+		local clamped = if offset.Magnitude > 0 then offset.Unit * amount else Vector2.zero
+		knob.Position = UDim2.fromScale(0.5 + clamped.X / 2, 0.5 + clamped.Y / 2)
+		if amount > AIM_DEADZONE then
+			touchAim = screenToWorld(offset)
+			touchFiring = amount >= FIRE_THRESHOLD
+			kl.Text = if touchFiring then "FIRE" else "AIM"
+		else
+			touchAim = nil
+			touchFiring = false
+			kl.Text = "AIM"
+		end
+	end)
+
+	-- Action buttons fanned around the stick.
+	local red = Color3.fromRGB(170, 40, 35)
+	local blue = Color3.fromRGB(40, 70, 140)
+	local brown = Color3.fromRGB(110, 80, 50)
+	round(touchGui, "Reload", "Reload", 66, UDim2.new(1, -235, 1, -60), blue).Activated:Connect(function()
+		handlers.Reload()
+	end)
+	round(touchGui, "Hatchet", "Hatchet", 66, UDim2.new(1, -230, 1, -140), red).Activated:Connect(function()
+		handlers.Melee()
+	end)
+	round(touchGui, "Swap", "Swap", 60, UDim2.new(1, -175, 1, -215), brown).Activated:Connect(function()
+		handlers.CycleWeapon()
+	end)
+	sprintButton = round(touchGui, "Sprint", "Sprint", 60, UDim2.new(1, -95, 1, -235), brown)
+	sprintButton.Activated:Connect(function()
+		handlers.SetSprint(not handlers.IsSprinting())
+	end)
+	round(touchGui, "Shop", "Shop", 50, UDim2.new(1, -40, 0.42, 0), brown).Activated:Connect(function()
+		handlers.ToggleShop()
+	end)
+	round(touchGui, "Board", "Board", 50, UDim2.new(1, -40, 0.42, 60), brown).Activated:Connect(function()
+		handlers.ToggleBoard()
+	end)
+
+	touchGui.Parent = player:WaitForChild("PlayerGui")
+end
+
+-- Roblox shows a jump button on phones; there's no jumping in this game.
+local function hideJumpButton()
+	local touch = player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("TouchGui")
+	local jump = touch and touch:FindFirstChild("JumpButton", true)
+	if jump and jump:IsA("GuiObject") then
+		jump.Visible = false
+	end
+end
+
+---------------------------------------------------------------------------
+-- Gamepad
+---------------------------------------------------------------------------
+
+local function bindGamepad()
+	UserInputService.InputChanged:Connect(function(input)
+		if input.KeyCode == Enum.KeyCode.Thumbstick2 then
+			local v = Vector2.new(input.Position.X, -input.Position.Y)
+			padAim = if v.Magnitude > 0.25 then screenToWorld(v) else padAim
+		end
+	end)
+	UserInputService.InputBegan:Connect(function(input, processed)
+		local key = input.KeyCode
+		if key == Enum.KeyCode.ButtonR2 then
+			padFiring = true
+		elseif key == Enum.KeyCode.ButtonL2 then
+			handlers.SetSprint(true)
+		elseif processed then
+			return
+		elseif key == Enum.KeyCode.ButtonX then
+			handlers.Reload()
+		elseif key == Enum.KeyCode.ButtonR1 then
+			handlers.Melee()
+		elseif key == Enum.KeyCode.ButtonY then
+			handlers.CycleWeapon()
+		elseif key == Enum.KeyCode.DPadUp then
+			handlers.ToggleShop()
+		elseif key == Enum.KeyCode.DPadDown then
+			handlers.ToggleBoard()
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.KeyCode == Enum.KeyCode.ButtonR2 then
+			padFiring = false
+		elseif input.KeyCode == Enum.KeyCode.ButtonL2 then
+			handlers.SetSprint(false)
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+
+local function modeFor(inputType: Enum.UserInputType): string?
+	if inputType == Enum.UserInputType.Touch then
+		return "Touch"
+	elseif inputType.Name:sub(1, 7) == "Gamepad" then
+		return "Gamepad"
+	elseif inputType == Enum.UserInputType.Keyboard or inputType.Name:sub(1, 5) == "Mouse" then
+		return "Mouse"
+	end
+	return nil
+end
+
+local function setMode(newMode: string)
+	if newMode == mode then
+		return
+	end
+	mode = newMode
+	touchGui.Enabled = mode == "Touch"
+	if mode ~= "Touch" then
+		touchAim = nil
+		touchFiring = false
+	end
+	if mode ~= "Gamepad" then
+		padFiring = false
+	end
+	handlers.ModeChanged(mode)
+end
+
+function Controls.Init(h: Handlers)
+	handlers = h
+	buildTouchUI()
+	bindGamepad()
+
+	local initial = "Mouse"
+	if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
+		initial = "Touch"
+	elseif UserInputService.GamepadEnabled and not UserInputService.KeyboardEnabled then
+		initial = "Gamepad"
+	end
+	mode = ""
+	setMode(initial)
+
+	UserInputService.LastInputTypeChanged:Connect(function(inputType)
+		local m = modeFor(inputType)
+		if m then
+			setMode(m)
+		end
+	end)
+
+	-- Keep the sprint button's look in sync and the jump button hidden.
+	task.spawn(function()
+		while true do
+			if mode == "Touch" then
+				hideJumpButton()
+				sprintButton.BackgroundTransparency = if handlers.IsSprinting() then 0 else 0.25
+				sprintButton.Text = if handlers.IsSprinting() then "Running" else "Sprint"
+			end
+			task.wait(0.25)
+		end
+	end)
+end
+
+return Controls
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000011"><Properties><string name="Name">Effects</string><ProtectedString name="Source"><![CDATA[-- Draws the effects the server reports: musket smoke, tracers, grenades,
 -- explosions and cannon fire. Everything here is local and purely cosmetic.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -5087,6 +5998,7 @@ local folder = workspace:WaitForChild("Effects")
 local SOUNDS = {
 	Musket = "rbxasset://sounds/Rocket shot.wav",
 	Slash = "rbxasset://sounds/swordslash.wav",
+	Pickup = "rbxasset://sounds/electronicpingshort.wav",
 	Hit = "rbxasset://sounds/collide.wav",
 }
 
@@ -5143,19 +6055,40 @@ local function smoke(pos: Vector3, size: number, duration: number)
 	TweenService:Create(puff, TweenInfo.new(duration), { Position = pos + Vector3.new(math.random() - 0.5, 2, math.random() - 0.5) }):Play()
 end
 
-local function tracer(from: Vector3, to: Vector3, color: Color3)
+local function tracer(from: Vector3, to: Vector3, color: Color3, thickness: number?)
 	local length = (to - from).Magnitude
 	if length < 0.5 then
 		return
 	end
-	local line = basicPart(Vector3.new(0.15, 0.15, length), color, Enum.Material.Neon)
+	local w = thickness or 0.15
+	local line = basicPart(Vector3.new(w, w, length), color, Enum.Material.Neon)
 	line.CFrame = CFrame.lookAt(from, to) * CFrame.new(0, 0, -length / 2)
 	line.Transparency = 0.2
 	line.Parent = folder
 	fadeOut(line, 0.18)
 end
 
+local RAY_GREEN = Color3.fromRGB(90, 255, 120)
+
+-- The ray gun: a fat green beam with a zap instead of powder smoke.
+local function rayShot(from: Vector3, ends: { Vector3 })
+	local flash = basicPart(Vector3.one * 1.6, RAY_GREEN, Enum.Material.Neon)
+	flash.Shape = Enum.PartType.Ball
+	flash.Position = from
+	flash.Parent = folder
+	fadeOut(flash, 0.15, Vector3.one * 3)
+	for _, e in ends do
+		tracer(from, e, RAY_GREEN, 0.5)
+		tracer(from, e, Color3.new(1, 1, 1), 0.15)
+	end
+	sound(SOUNDS.Musket, from, 0.5, 2.2)
+end
+
 local function shot(from: Vector3, ends: { Vector3 }, team: string)
+	if team == "Ray" then
+		rayShot(from, ends)
+		return
+	end
 	local flash = basicPart(Vector3.one * 1.2, Color3.fromRGB(255, 200, 90), Enum.Material.Neon)
 	flash.Shape = Enum.PartType.Ball
 	flash.Position = from
@@ -5272,6 +6205,52 @@ local function slash(pos: Vector3, dir: Vector3)
 end
 
 -- Make every tagged flame light flicker.
+-- A power-up was collected: a burst of coloured light and a chime.
+local function powerupBurst(pos: Vector3, color: Color3)
+	local ring = basicPart(Vector3.new(0.3, 2, 2), color, Enum.Material.Neon)
+	ring.Shape = Enum.PartType.Cylinder
+	ring.CFrame = CFrame.new(pos.X, 1, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+	ring.Transparency = 0.2
+	ring.Parent = folder
+	fadeOut(ring, 0.8, Vector3.new(0.3, 30, 30))
+	local orb = basicPart(Vector3.one * 2, color, Enum.Material.Neon)
+	orb.Shape = Enum.PartType.Ball
+	orb.Position = pos + Vector3.new(0, 3, 0)
+	orb.Parent = folder
+	fadeOut(orb, 0.6, Vector3.one * 10)
+	sound(SOUNDS.Pickup, nil, 0.8, 1)
+end
+
+-- Drop tokens spin, bob and blink when about to vanish.
+local function animateDrops()
+	local drops = workspace:WaitForChild("Drops", 30)
+	if not drops then
+		return
+	end
+	RunService.RenderStepped:Connect(function()
+		local t = os.clock()
+		local serverNow = workspace:GetServerTimeNow()
+		for _, model in drops:GetChildren() do
+			local core = model:FindFirstChild("Core") :: BasePart?
+			local ring = model:FindFirstChild("Ring") :: BasePart?
+			if core and ring then
+				local base = model:GetAttribute("Base")
+				if typeof(base) ~= "Vector3" then
+					base = core.Position
+					model:SetAttribute("Base", base)
+				end
+				local pos = (base :: Vector3) + Vector3.new(0, math.sin(t * 3) * 0.5, 0)
+				core.CFrame = CFrame.new(pos) * CFrame.Angles(0, t * 2, 0)
+				ring.CFrame = CFrame.new(pos) * CFrame.Angles(0, t * 3, math.rad(90) + math.sin(t * 2) * 0.6)
+				local left = (model:GetAttribute("Expires") or math.huge) - serverNow
+				local hidden = left < 5 and math.floor(t * 6) % 2 == 0
+				core.Transparency = if hidden then 0.8 else 0
+				ring.Transparency = if hidden then 0.9 else 0.4
+			end
+		end
+	end)
+end
+
 local function startFlicker()
 	local t0 = os.clock()
 	RunService.RenderStepped:Connect(function()
@@ -5288,6 +6267,7 @@ end
 
 function Effects.Init()
 	startFlicker()
+	task.spawn(animateDrops)
 	local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Effect") :: RemoteEvent
 	remote.OnClientEvent:Connect(function(kind: string, ...)
 		if kind == "Shot" then
@@ -5309,18 +6289,21 @@ function Effects.Init()
 			cannonWarn(...)
 		elseif kind == "Slash" then
 			slash(...)
+		elseif kind == "Powerup" then
+			powerupBurst(...)
 		end
 	end)
 end
 
 return Effects
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000010"><Properties><string name="Name">Interface</string><ProtectedString name="Source"><![CDATA[-- HUD (health, ammo, wave info, powder stores), announcements, crosshair,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000012"><Properties><string name="Name">Interface</string><ProtectedString name="Source"><![CDATA[-- HUD (health, ammo, wave info, powder stores), announcements, crosshair,
 -- and the between-wave shop. Built entirely in code.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 
@@ -5413,6 +6396,7 @@ end
 local gui: ScreenGui
 local refs: { [string]: any } = {}
 local shopOpen = false
+local inputMode = "Mouse"
 local shopFrame: Frame
 local shopStatus: TextLabel
 local shopRefreshers: { () -> () } = {}
@@ -5425,6 +6409,7 @@ local function buildHud()
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		Parent = player:WaitForChild("PlayerGui"),
 	})
+	Interface.AddScaling(gui)
 
 	-- Top banner: wave + phase + stores.
 	local top = new("Frame", {
@@ -5476,6 +6461,7 @@ local function buildHud()
 		BackgroundColor3 = PARCHMENT,
 		BackgroundTransparency = 0.05,
 	}, { corner(8), stroke(INK, 3) })
+	refs.Status = status
 	refs.HealthFill, refs.HealthText = bar(status, UDim2.fromOffset(12, 12), UDim2.new(1, -24, 0, 26), RED, "Health")
 	refs.MoneyLabel = label({ Parent = status, Position = UDim2.fromOffset(12, 46), Size = UDim2.new(0.5, -12, 0, 34), Font = FONT_BOLD, TextXAlignment = Enum.TextXAlignment.Left, Text = "$0" })
 	refs.AlliesLabel = label({ Parent = status, Position = UDim2.new(0.5, 0, 0, 50), Size = UDim2.new(0.5, -12, 0, 26), TextXAlignment = Enum.TextXAlignment.Right, Text = "" })
@@ -5489,6 +6475,7 @@ local function buildHud()
 		BackgroundColor3 = PARCHMENT,
 		BackgroundTransparency = 0.05,
 	}, { corner(8), stroke(INK, 3) })
+	refs.WeaponPanel = weapon
 	refs.WeaponLabel = label({ Parent = weapon, Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, -24, 0, 30), Font = FONT_BOLD, TextXAlignment = Enum.TextXAlignment.Left, Text = "Musket" })
 	refs.AmmoRow = new("Frame", { Parent = weapon, Position = UDim2.fromOffset(12, 42), Size = UDim2.new(1, -24, 0, 22), BackgroundTransparency = 1 }, {
 		new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6) }),
@@ -5496,8 +6483,41 @@ local function buildHud()
 	refs.ReloadFill, refs.ReloadText = bar(weapon, UDim2.fromOffset(12, 70), UDim2.new(1, -24, 0, 18), Color3.fromRGB(90, 90, 90), "")
 	refs.SlotsLabel = label({ Parent = weapon, Position = UDim2.fromOffset(12, 94), Size = UDim2.new(1, -24, 0, 18), TextXAlignment = Enum.TextXAlignment.Left, Text = "" })
 
+	-- Active power-ups with their remaining time.
+	refs.PowerRow = new("Frame", {
+		Parent = gui,
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -32),
+		Size = UDim2.fromOffset(700, 34),
+		BackgroundTransparency = 1,
+	}, {
+		new("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
+	refs.PowerPills = {}
+	for kind, def in Config.Drops.Kinds do
+		if def.Duration then
+			refs.PowerPills[kind] = label({
+				Parent = refs.PowerRow,
+				Size = UDim2.fromOffset(170, 30),
+				BackgroundTransparency = 0.15,
+				BackgroundColor3 = Color3.fromRGB(30, 22, 18),
+				TextColor3 = def.Color,
+				Font = FONT_BOLD,
+				Text = def.Name,
+				Visible = false,
+			})
+			corner(6).Parent = refs.PowerPills[kind]
+			stroke(def.Color, 2).Parent = refs.PowerPills[kind]
+		end
+	end
+
 	-- Controls hint.
-	label({
+	refs.Hint = label({
 		Parent = gui,
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -8),
@@ -5585,6 +6605,9 @@ local function shopButton(parent: Instance, order: number, title: string, desc: 
 		Text = "",
 	}, { corner(6), new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4) }) })
 	button.Activated:Connect(onClick)
+	if not refs.FirstShopButton then
+		refs.FirstShopButton = button
+	end
 	local function doRefresh()
 		refresh(button, info)
 	end
@@ -5656,6 +6679,9 @@ local function buildShop()
 		return w.Order
 	end) do
 		local w = Config.Weapons[id]
+		if w.Hidden then
+			continue -- secret weapons aren't for sale
+		end
 		local desc = ("%s  Dmg %d, reload %.1fs"):format(w.Description, w.Damage, w.ReloadTime)
 		shopButton(list, nextOrder(), w.Name, desc, function()
 			buy("Weapon", id)
@@ -5774,6 +6800,10 @@ function Interface.SetShopOpen(open: boolean)
 			r()
 		end
 	end
+	-- Controllers navigate the shop with the D-pad / left stick.
+	if inputMode == "Gamepad" then
+		GuiService.SelectedObject = if open then refs.FirstShopButton else nil
+	end
 end
 
 function Interface.ToggleShop()
@@ -5787,6 +6817,50 @@ end
 ---------------------------------------------------------------------------
 -- Updates
 ---------------------------------------------------------------------------
+
+---------------------------------------------------------------------------
+-- Screen size and input device
+---------------------------------------------------------------------------
+
+-- Shrink the whole HUD on small screens (phones) so panels don't overlap.
+function Interface.AddScaling(screenGui: ScreenGui)
+	local scale = Instance.new("UIScale")
+	scale.Parent = screenGui
+	local camera = workspace.CurrentCamera
+	local function rescale()
+		local vp = camera.ViewportSize
+		scale.Scale = math.clamp(math.min(vp.X / 1280, vp.Y / 720), 0.55, 1)
+	end
+	rescale()
+	camera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
+end
+
+local HINTS = {
+	Mouse = "WASD move  |  Shift sprint  |  L leaderboard  |  Mouse aim  |  Click fire  |  R reload  |  F / Right-click hatchet  |  1-5 weapons  |  B shop",
+	Gamepad = "Left stick move  |  Right stick aim  |  RT fire  |  LT sprint  |  X reload  |  RB hatchet  |  Y swap weapon  |  D-pad up shop  |  D-pad down leaderboard",
+	Touch = "",
+}
+
+-- "Mouse" | "Touch" | "Gamepad". On touch screens the thumbsticks own the
+-- bottom corners, so the health and weapon panels move to the top left.
+function Interface.SetInputMode(mode: string)
+	inputMode = mode
+	local touch = mode == "Touch"
+	if touch then
+		refs.Status.AnchorPoint = Vector2.new(0, 0)
+		refs.Status.Position = UDim2.new(0, 16, 0, 44)
+		refs.WeaponPanel.AnchorPoint = Vector2.new(0, 0)
+		refs.WeaponPanel.Position = UDim2.new(0, 16, 0, 144)
+	else
+		refs.Status.AnchorPoint = Vector2.new(0, 1)
+		refs.Status.Position = UDim2.new(0, 16, 1, -16)
+		refs.WeaponPanel.AnchorPoint = Vector2.new(1, 1)
+		refs.WeaponPanel.Position = UDim2.new(1, -16, 1, -16)
+	end
+	refs.Hint.Text = HINTS[mode] or ""
+	refs.Hint.Visible = not touch
+	refs.PowerRow.Position = if touch then UDim2.new(0.5, 0, 1, -12) else UDim2.new(0.5, 0, 1, -32)
+end
 
 local bannerToken = 0
 function Interface.Announce(text: string, color: Color3?)
@@ -5814,9 +6888,14 @@ local function refreshAmmo()
 	end
 	lastAmmo, lastCapacity = ammo, capacity
 	for _, c in refs.AmmoRow:GetChildren() do
-		if c:IsA("Frame") then
+		if c:IsA("Frame") or c:IsA("TextLabel") then
 			c:Destroy()
 		end
+	end
+	if capacity > 6 then
+		-- Too many rounds for pips (the ray gun): show a counter.
+		label({ Parent = refs.AmmoRow, Size = UDim2.fromOffset(120, 20), Font = FONT_BOLD, TextXAlignment = Enum.TextXAlignment.Left, Text = ("%d / %d"):format(ammo, capacity) })
+		return
 	end
 	for i = 1, capacity do
 		new("Frame", {
@@ -5918,9 +6997,17 @@ function Interface.Update()
 	end
 	refs.SlotsLabel.Text = table.concat(slots, "   ")
 
+	for kind, pill in refs.PowerPills do
+		local left = (gameState:GetAttribute("PU_" .. kind) or 0) - t
+		pill.Visible = left > 0
+		if left > 0 then
+			pill.Text = ("%s  %ds"):format(Config.Drops.Kinds[kind].Name, math.ceil(left))
+		end
+	end
+
 	local mouse = UserInputService:GetMouseLocation()
 	refs.Crosshair.Position = UDim2.fromOffset(mouse.X, mouse.Y)
-	refs.Crosshair.Visible = alive and not shopOpen
+	refs.Crosshair.Visible = alive and not shopOpen and inputMode == "Mouse"
 	UserInputService.MouseIconEnabled = shopOpen or not alive
 end
 
@@ -5949,7 +7036,7 @@ function Interface.Init()
 end
 
 return Interface
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000011"><Properties><string name="Name">LeaderboardUI</string><ProtectedString name="Source"><![CDATA[-- Live leaderboard (press L) and the Campaign / Endless mode vote.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000013"><Properties><string name="Name">LeaderboardUI</string><ProtectedString name="Source"><![CDATA[-- Live leaderboard (press L) and the Campaign / Endless mode vote.
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -6192,6 +7279,24 @@ end
 
 ---------------------------------------------------------------------------
 
+function LeaderboardUI.Toggle()
+	visible = not visible
+	panel.Visible = visible
+end
+
+local touchLayoutSeen = false
+-- On touch screens the left-hand HUD panels sit at the top, so the vote panel
+-- moves below them, and the board starts hidden (it has a "Board" button).
+function LeaderboardUI.SetInputMode(mode: string)
+	local touch = mode == "Touch"
+	votePanel.Position = if touch then UDim2.new(0, 16, 0, 276) else UDim2.new(0, 16, 0, 150)
+	if touch and not touchLayoutSeen then
+		touchLayoutSeen = true
+		visible = false
+		panel.Visible = false
+	end
+end
+
 function LeaderboardUI.Init()
 	local gui = new("ScreenGui", {
 		Name = "Leaderboard",
@@ -6199,13 +7304,21 @@ function LeaderboardUI.Init()
 		IgnoreGuiInset = true,
 		Parent = player:WaitForChild("PlayerGui"),
 	})
+	-- Same screen-size scaling as the HUD.
+	local scale = new("UIScale", { Parent = gui })
+	local camera = workspace.CurrentCamera
+	local function rescale()
+		local vp = camera.ViewportSize
+		scale.Scale = math.clamp(math.min(vp.X / 1280, vp.Y / 720), 0.55, 1)
+	end
+	rescale()
+	camera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 	buildPanel(gui)
 	buildVote(gui)
 
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if not processed and input.KeyCode == Enum.KeyCode.L then
-			visible = not visible
-			panel.Visible = visible
+			LeaderboardUI.Toggle()
 		end
 	end)
 
@@ -6224,7 +7337,7 @@ function LeaderboardUI.Init()
 end
 
 return LeaderboardUI
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000012"><Properties><string name="Name">Townsfolk</string><ProtectedString name="Source"><![CDATA[-- Townsfolk: cosmetic non-combatants (children, the crier, the blacksmith,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000014"><Properties><string name="Name">Townsfolk</string><ProtectedString name="Source"><![CDATA[-- Townsfolk: cosmetic non-combatants (children, the crier, the blacksmith,
 -- the drummer boy and chickens) that make the town feel alive. They run
 -- entirely on each client (no network traffic): they wander the village,
 -- chat, and panic once the Regulars attack. They can't be shot or hurt.
@@ -6835,7 +7948,7 @@ function Townsfolk.Init()
 end
 
 return Townsfolk
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000013"><Properties><string name="Name">UnitAnimator</string><ProtectedString name="Source"><![CDATA[-- Walk animation for soldiers and armed townsfolk. The server moves each unit
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000015"><Properties><string name="Name">UnitAnimator</string><ProtectedString name="Source"><![CDATA[-- Walk animation for soldiers and armed townsfolk. The server moves each unit
 -- by CFrame; here every client swings the leg welds (tagged "UnitLeg") based
 -- on how fast the unit is actually moving. Purely visual, no network cost.
 
@@ -6909,4 +8022,4 @@ function UnitAnimator.Init()
 end
 
 return UnitAnimator
-]]></ProtectedString></Properties></Item></Item><Item class="StarterCharacterScripts" referent="RBX00000015"><Properties><string name="Name">StarterCharacterScripts</string></Properties></Item></Item></roblox>
+]]></ProtectedString></Properties></Item></Item><Item class="StarterCharacterScripts" referent="RBX00000017"><Properties><string name="Name">StarterCharacterScripts</string></Properties></Item></Item></roblox>

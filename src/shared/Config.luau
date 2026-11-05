@@ -56,6 +56,8 @@ export type WeaponDef = {
 	ReloadTime: number,
 	FireCooldown: number,
 	Description: string,
+	Hidden: boolean?, -- not sold in the shop (the ray gun)
+	Splash: number?, -- explosive radius on impact
 }
 
 Config.Weapons = {
@@ -110,6 +112,22 @@ Config.Weapons = {
 		ReloadTime = 3.6,
 		FireCooldown = 0.2,
 		Description = "Pennsylvania rifle. Deadly accurate, slow to load.",
+	},
+	-- Secret: found behind the church on boss rounds; lasts for that round only.
+	RayGun = {
+		Name = "Ray Gun",
+		Order = 5,
+		Price = 0,
+		Damage = 200,
+		Range = 160,
+		Spread = 1,
+		Pellets = 1,
+		Capacity = 20,
+		ReloadTime = 2.0,
+		FireCooldown = 0.25,
+		Description = "...where did this come from?",
+		Hidden = true,
+		Splash = 6,
 	},
 } :: { [string]: WeaponDef }
 
@@ -179,6 +197,34 @@ function Config.GetGeneral(wave: number): { Name: string, Title: string, Quote: 
 	local list = Config.Boss.Generals
 	return list[((wave // Config.Boss.Every - 1) % #list) + 1]
 end
+
+-- Power-up drops, Zombies-style. Redcoats sometimes drop one when killed;
+-- walk over it to trigger it for the whole team. Timed ones show on the HUD.
+Config.Drops = {
+	Chance = 0.035, -- per redcoat killed
+	MinGap = 10, -- seconds between drops
+	MaxPerWave = 4,
+	Lifetime = 25, -- seconds before an untouched drop vanishes
+	PickupRadius = 4.5,
+	Kinds = {
+		RapidFire = { Name = "Bottomless Powder", Text = "No reloading!", Duration = 20, Weight = 3, Color = Color3.fromRGB(255, 200, 60) },
+		Medic = { Name = "Field Surgeon", Text = "Everyone healed, the fallen rejoin!", Weight = 3, Color = Color3.fromRGB(240, 240, 240) },
+		InstaKill = { Name = "Deadeye", Text = "Every shot kills!", Duration = 20, Weight = 2, Color = Color3.fromRGB(230, 40, 40) },
+		DoubleBounty = { Name = "Double Bounty", Text = "Double money and score!", Duration = 30, Weight = 3, Color = Color3.fromRGB(80, 220, 90) },
+		Nuke = { Name = "Powder Keg", Text = "Boom!", Weight = 1, Color = Color3.fromRGB(255, 120, 30), Radius = 110, Payout = 100, BossDamage = 300 },
+		Rebuild = { Name = "Rebuild the Stores", Text = "The powder stores are repaired!", Weight = 2, Color = Color3.fromRGB(90, 160, 255) },
+		WarChest = { Name = "War Chest", Text = "+$150 for everyone!", Weight = 2, Color = Color3.fromRGB(214, 172, 60), Payout = 150 },
+	} :: { [string]: { Name: string, Text: string, Weight: number, Color: Color3, Duration: number?, Radius: number?, Payout: number?, BossDamage: number? } },
+	-- Generals always drop one of these.
+	BossDrops = { "Nuke", "Medic", "InstaKill" },
+}
+
+-- The easter egg behind the church.
+Config.EasterEgg = {
+	Position = Vector3.new(-33, 0, 47), -- tucked behind the church tower
+	PromptText = "Reach inside",
+	ObjectText = "Strange contraption",
+}
 
 -- Armed townsfolk respawned in the village every intermission.
 Config.Townsfolk = {

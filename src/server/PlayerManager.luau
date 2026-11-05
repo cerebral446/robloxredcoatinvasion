@@ -21,6 +21,7 @@ type Data = {
 	Reloading: boolean,
 	Spawning: boolean,
 	Sprinting: boolean,
+	ReturnWeapon: string?,
 	LastFire: number,
 	LastMelee: number,
 	Upgrades: { [string]: number },
@@ -29,7 +30,7 @@ type Data = {
 local data: { [Player]: Data } = {}
 
 -- How far past the shot origin each weapon's visible muzzle sits.
-local MUZZLE_DISTANCE = { Musket = 3.6, LongRifle = 4.6, Blunderbuss = 2.6, Pistols = 1.2 }
+local MUZZLE_DISTANCE = { Musket = 3.6, LongRifle = 4.6, Blunderbuss = 2.6, Pistols = 1.2, RayGun = 1.4 }
 local gameState: Instance
 local canShop: () -> boolean = function()
 	return false
@@ -51,6 +52,12 @@ local function getRoot(player: Player): (BasePart?, Humanoid?)
 	end
 	return root, hum
 end
+
+-- Team-wide power-ups store their end time on GameState as "PU_<kind>".
+local function powerupActive(kind: string): boolean
+	return (gameState and gameState:GetAttribute("PU_" .. kind) or 0) > now()
+end
+PlayerManager.PowerupActive = powerupActive
 
 local function upgradeValue(d: Data, id: string): number
 	return (d.Upgrades[id] or 0) * Config.Upgrades[id].PerLevel
@@ -126,6 +133,12 @@ local function startReload(player: Player)
 		return
 	end
 	if not getRoot(player) then
+		return
+	end
+	if powerupActive("RapidFire") then
+		-- Bottomless Powder: no reloading at all.
+		d.Ammo[d.Equipped] = weapon.Capacity
+		sync(player)
 		return
 	end
 	d.Reloading = true
@@ -207,9 +220,23 @@ local function fire(player: Player, aimPoint: Vector3)
 			table.insert(ends, origin + dir * weapon.Range)
 		end
 	end
+	local deadeye = powerupActive("InstaKill")
 	for inst, dmg in pending do
+		local unit = Units.FromInstance(inst)
+		if deadeye and unit and unit.Team == "Red" then
+			-- Deadeye: one shot kills; generals take triple damage instead.
+			dmg = if unit.Def.Boss then dmg * 3 else unit.Health + 1
+		end
 		local flesh = Units.ApplyHit(inst, dmg, "Blue", player)
 		FX.Hit(hitAt[inst], flesh)
+		if weapon.Splash then
+			-- Small visual blast (big ones leave burning ground behind).
+			FX.Explosion(hitAt[inst], math.min(weapon.Splash, 4))
+			Units.AreaDamage(hitAt[inst], weapon.Splash, damage * 0.5, "Blue", nil, player)
+		end
+	end
+	if powerupActive("RapidFire") then
+		d.Ammo[d.Equipped] = weapon.Capacity
 	end
 	-- Draw smoke and tracers from the visible muzzle (unless something was
 	-- hit closer than that, e.g. when standing against a wall).
@@ -220,7 +247,7 @@ local function fire(player: Player, aimPoint: Vector3)
 		nearest = math.min(nearest, (e - origin).Magnitude)
 	end
 	fxOrigin = origin + forward * math.max(0, math.min(muzzle, nearest - 0.5))
-	FX.Shot(fxOrigin, ends, "Blue")
+	FX.Shot(fxOrigin, ends, if d.Equipped == "RayGun" then "Ray" else "Blue")
 
 	sync(player)
 	if d.Ammo[d.Equipped] <= 0 then
@@ -248,7 +275,11 @@ local function melee(player: Player)
 			delta = Vector3.new(delta.X, 0, delta.Z)
 			local reach = Config.Melee.Range + unit.Root.Size.Z / 2
 			if delta.Magnitude <= reach and (delta.Magnitude < 1 or delta.Unit:Dot(look) >= cosLimit) then
-				Units.Damage(unit, Config.Melee.Damage * (1 + upgradeValue(d, "Damage")), player)
+				local dmg = Config.Melee.Damage * (1 + upgradeValue(d, "Damage"))
+				if powerupActive("InstaKill") then
+					dmg = if unit.Def.Boss then dmg * 3 else unit.Health + 1
+				end
+				Units.Damage(unit, dmg, player)
 				FX.Hit(unit.Root.Position, true)
 			end
 		end
@@ -282,6 +313,9 @@ local function purchase(player: Player, kind: string, id: string?): (boolean, st
 		local weapon = Config.Weapons[id]
 		if not weapon then
 			return false, "Unknown weapon"
+		end
+		if weapon.Hidden and not d.Owned[id] then
+			return false, "That isn't for sale..."
 		end
 		if d.Owned[id] then
 			equip(player, id)
@@ -376,6 +410,22 @@ local function pistol(): { PieceDef }
 	}
 end
 
+-- A very out-of-period sidearm.
+local function rayGun(): { PieceDef }
+	local copper = Color3.fromRGB(190, 70, 50)
+	local glow = Color3.fromRGB(90, 255, 120)
+	return {
+		{ Vector3.new(0.3, 0.75, 0.45), CFrame.new(0, -0.3, 0.15) * CFrame.Angles(math.rad(-15), 0, 0), Color3.fromRGB(60, 60, 65), Enum.Material.Metal },
+		{ Vector3.new(0.5, 0.55, 1.2), CFrame.new(0, 0.15, -0.35), copper, Enum.Material.Metal },
+		{ Vector3.new(0.62, 0.62, 0.12), CFrame.new(0, 0.15, -0.7), glow, Enum.Material.Neon },
+		{ Vector3.new(0.5, 0.5, 0.12), CFrame.new(0, 0.15, -0.95), glow, Enum.Material.Neon },
+		{ Vector3.new(0.38, 0.38, 0.12), CFrame.new(0, 0.15, -1.18), glow, Enum.Material.Neon },
+		{ Vector3.new(0.22, 0.22, 0.6), CFrame.new(0, 0.15, -1.4), copper, Enum.Material.Metal },
+		{ Vector3.new(0.3, 0.3, 0.2), CFrame.new(0, 0.15, -1.75), glow, Enum.Material.Neon },
+		{ Vector3.new(0.12, 0.35, 0.8), CFrame.new(0, 0.55, -0.3), copper, Enum.Material.Metal },
+	}
+end
+
 -- Each weapon: which hand holds which piece set, and how far each arm swings
 -- inward (degrees) when raised to hold it.
 type Holder = { Hand: string, Pieces: { PieceDef } }
@@ -393,6 +443,7 @@ local WEAPON_MODELS: { [string]: WeaponModel } = {
 		RightYaw = 0,
 		LeftYaw = 0,
 	},
+	RayGun = { Holders = { { Hand = "Right", Pieces = rayGun() } }, RightYaw = 0, LeftYaw = -30 },
 }
 
 local NAVY = Color3.fromRGB(32, 45, 100)
@@ -678,6 +729,9 @@ function PlayerManager.AddKill(player: Player, reward: number)
 	local d = data[player]
 	if d then
 		d.Kills += 1
+		if powerupActive("DoubleBounty") then
+			reward *= 2
+		end
 		d.Money += reward
 		d.Score += reward
 		sync(player)
@@ -689,6 +743,54 @@ function PlayerManager.AddScore(player: Player, amount: number)
 	if d then
 		d.Score += amount
 		sync(player)
+	end
+end
+
+-- Fill every owned weapon and cancel any reload in progress.
+function PlayerManager.RefillAll(player: Player)
+	local d = data[player]
+	if not d then
+		return
+	end
+	cancelReload(player)
+	for id, owned in d.Owned do
+		if owned then
+			d.Ammo[id] = Config.Weapons[id].Capacity
+		end
+	end
+	sync(player)
+end
+
+-- The easter-egg ray gun: lent for the current (boss) round only.
+function PlayerManager.GiveRayGun(player: Player): boolean
+	local d = data[player]
+	if not d or d.Owned.RayGun or not getRoot(player) then
+		return false
+	end
+	d.Owned.RayGun = true
+	d.Ammo.RayGun = Config.Weapons.RayGun.Capacity
+	d.ReturnWeapon = d.Equipped
+	equip(player, "RayGun")
+	sync(player)
+	return true
+end
+
+function PlayerManager.TakeRayGuns()
+	for player, d in data do
+		if d.Owned.RayGun then
+			d.Owned.RayGun = nil
+			d.Ammo.RayGun = nil
+			if d.Equipped == "RayGun" then
+				local back = d.ReturnWeapon
+				if not back or not d.Owned[back] then
+					back = "Musket"
+				end
+				cancelReload(player)
+				d.Equipped = back
+				PlayerManager.DressCharacter(player)
+			end
+			sync(player)
+		end
 	end
 end
 

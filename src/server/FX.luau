@@ -39,6 +39,11 @@ function FX.Cannonball(from: Vector3, to: Vector3, duration: number)
 	effectRemote:FireAllClients("Cannonball", from, to, duration)
 end
 
+-- A power-up was collected (burst of coloured light + chime).
+function FX.Powerup(pos: Vector3, color: Color3)
+	effectRemote:FireAllClients("Powerup", pos, color)
+end
+
 function FX.Slash(pos: Vector3, dir: Vector3)
 	effectRemote:FireAllClients("Slash", pos, dir)
 end

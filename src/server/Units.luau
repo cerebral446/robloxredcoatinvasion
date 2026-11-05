@@ -935,7 +935,7 @@ function Units.ApplyHit(inst: Instance, damage: number, attackerTeam: string, at
 end
 
 -- Damage everything hostile to `attackerTeam` within radius of pos.
-function Units.AreaDamage(pos: Vector3, radius: number, damage: number, attackerTeam: string, storesMultiplier: number?)
+function Units.AreaDamage(pos: Vector3, radius: number, damage: number, attackerTeam: string, storesMultiplier: number?, attacker: Player?)
 	if attackerTeam == "Red" then
 		for _, c in livingCharacters() do
 			local d = (c.Root.Position - pos).Magnitude
@@ -953,7 +953,7 @@ function Units.AreaDamage(pos: Vector3, radius: number, damage: number, attacker
 		if u and not u.Dead and u.Team ~= attackerTeam then
 			local d = (u.Root.Position - pos).Magnitude
 			if d <= radius then
-				Units.Damage(u, damage * (1 - 0.5 * d / radius), nil)
+				Units.Damage(u, damage * (1 - 0.5 * d / radius), attacker)
 			end
 		end
 	end

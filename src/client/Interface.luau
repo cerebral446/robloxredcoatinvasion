@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 
@@ -97,6 +98,7 @@ end
 local gui: ScreenGui
 local refs: { [string]: any } = {}
 local shopOpen = false
+local inputMode = "Mouse"
 local shopFrame: Frame
 local shopStatus: TextLabel
 local shopRefreshers: { () -> () } = {}
@@ -109,6 +111,7 @@ local function buildHud()
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		Parent = player:WaitForChild("PlayerGui"),
 	})
+	Interface.AddScaling(gui)
 
 	-- Top banner: wave + phase + stores.
 	local top = new("Frame", {
@@ -160,6 +163,7 @@ local function buildHud()
 		BackgroundColor3 = PARCHMENT,
 		BackgroundTransparency = 0.05,
 	}, { corner(8), stroke(INK, 3) })
+	refs.Status = status
 	refs.HealthFill, refs.HealthText = bar(status, UDim2.fromOffset(12, 12), UDim2.new(1, -24, 0, 26), RED, "Health")
 	refs.MoneyLabel = label({ Parent = status, Position = UDim2.fromOffset(12, 46), Size = UDim2.new(0.5, -12, 0, 34), Font = FONT_BOLD, TextXAlignment = Enum.TextXAlignment.Left, Text = "$0" })
 	refs.AlliesLabel = label({ Parent = status, Position = UDim2.new(0.5, 0, 0, 50), Size = UDim2.new(0.5, -12, 0, 26), TextXAlignment = Enum.TextXAlignment.Right, Text = "" })
@@ -173,6 +177,7 @@ local function buildHud()
 		BackgroundColor3 = PARCHMENT,
 		BackgroundTransparency = 0.05,
 	}, { corner(8), stroke(INK, 3) })
+	refs.WeaponPanel = weapon
 	refs.WeaponLabel = label({ Parent = weapon, Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, -24, 0, 30), Font = FONT_BOLD, TextXAlignment = Enum.TextXAlignment.Left, Text = "Musket" })
 	refs.AmmoRow = new("Frame", { Parent = weapon, Position = UDim2.fromOffset(12, 42), Size = UDim2.new(1, -24, 0, 22), BackgroundTransparency = 1 }, {
 		new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6) }),
@@ -180,8 +185,41 @@ local function buildHud()
 	refs.ReloadFill, refs.ReloadText = bar(weapon, UDim2.fromOffset(12, 70), UDim2.new(1, -24, 0, 18), Color3.fromRGB(90, 90, 90), "")
 	refs.SlotsLabel = label({ Parent = weapon, Position = UDim2.fromOffset(12, 94), Size = UDim2.new(1, -24, 0, 18), TextXAlignment = Enum.TextXAlignment.Left, Text = "" })
 
+	-- Active power-ups with their remaining time.
+	refs.PowerRow = new("Frame", {
+		Parent = gui,
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -32),
+		Size = UDim2.fromOffset(700, 34),
+		BackgroundTransparency = 1,
+	}, {
+		new("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
+	refs.PowerPills = {}
+	for kind, def in Config.Drops.Kinds do
+		if def.Duration then
+			refs.PowerPills[kind] = label({
+				Parent = refs.PowerRow,
+				Size = UDim2.fromOffset(170, 30),
+				BackgroundTransparency = 0.15,
+				BackgroundColor3 = Color3.fromRGB(30, 22, 18),
+				TextColor3 = def.Color,
+				Font = FONT_BOLD,
+				Text = def.Name,
+				Visible = false,
+			})
+			corner(6).Parent = refs.PowerPills[kind]
+			stroke(def.Color, 2).Parent = refs.PowerPills[kind]
+		end
+	end
+
 	-- Controls hint.
-	label({
+	refs.Hint = label({
 		Parent = gui,
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -8),
@@ -269,6 +307,9 @@ local function shopButton(parent: Instance, order: number, title: string, desc: 
 		Text = "",
 	}, { corner(6), new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4) }) })
 	button.Activated:Connect(onClick)
+	if not refs.FirstShopButton then
+		refs.FirstShopButton = button
+	end
 	local function doRefresh()
 		refresh(button, info)
 	end
@@ -340,6 +381,9 @@ local function buildShop()
 		return w.Order
 	end) do
 		local w = Config.Weapons[id]
+		if w.Hidden then
+			continue -- secret weapons aren't for sale
+		end
 		local desc = ("%s  Dmg %d, reload %.1fs"):format(w.Description, w.Damage, w.ReloadTime)
 		shopButton(list, nextOrder(), w.Name, desc, function()
 			buy("Weapon", id)
@@ -458,6 +502,10 @@ function Interface.SetShopOpen(open: boolean)
 			r()
 		end
 	end
+	-- Controllers navigate the shop with the D-pad / left stick.
+	if inputMode == "Gamepad" then
+		GuiService.SelectedObject = if open then refs.FirstShopButton else nil
+	end
 end
 
 function Interface.ToggleShop()
@@ -471,6 +519,50 @@ end
 ---------------------------------------------------------------------------
 -- Updates
 ---------------------------------------------------------------------------
+
+---------------------------------------------------------------------------
+-- Screen size and input device
+---------------------------------------------------------------------------
+
+-- Shrink the whole HUD on small screens (phones) so panels don't overlap.
+function Interface.AddScaling(screenGui: ScreenGui)
+	local scale = Instance.new("UIScale")
+	scale.Parent = screenGui
+	local camera = workspace.CurrentCamera
+	local function rescale()
+		local vp = camera.ViewportSize
+		scale.Scale = math.clamp(math.min(vp.X / 1280, vp.Y / 720), 0.55, 1)
+	end
+	rescale()
+	camera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
+end
+
+local HINTS = {
+	Mouse = "WASD move  |  Shift sprint  |  L leaderboard  |  Mouse aim  |  Click fire  |  R reload  |  F / Right-click hatchet  |  1-5 weapons  |  B shop",
+	Gamepad = "Left stick move  |  Right stick aim  |  RT fire  |  LT sprint  |  X reload  |  RB hatchet  |  Y swap weapon  |  D-pad up shop  |  D-pad down leaderboard",
+	Touch = "",
+}
+
+-- "Mouse" | "Touch" | "Gamepad". On touch screens the thumbsticks own the
+-- bottom corners, so the health and weapon panels move to the top left.
+function Interface.SetInputMode(mode: string)
+	inputMode = mode
+	local touch = mode == "Touch"
+	if touch then
+		refs.Status.AnchorPoint = Vector2.new(0, 0)
+		refs.Status.Position = UDim2.new(0, 16, 0, 44)
+		refs.WeaponPanel.AnchorPoint = Vector2.new(0, 0)
+		refs.WeaponPanel.Position = UDim2.new(0, 16, 0, 144)
+	else
+		refs.Status.AnchorPoint = Vector2.new(0, 1)
+		refs.Status.Position = UDim2.new(0, 16, 1, -16)
+		refs.WeaponPanel.AnchorPoint = Vector2.new(1, 1)
+		refs.WeaponPanel.Position = UDim2.new(1, -16, 1, -16)
+	end
+	refs.Hint.Text = HINTS[mode] or ""
+	refs.Hint.Visible = not touch
+	refs.PowerRow.Position = if touch then UDim2.new(0.5, 0, 1, -12) else UDim2.new(0.5, 0, 1, -32)
+end
 
 local bannerToken = 0
 function Interface.Announce(text: string, color: Color3?)
@@ -498,9 +590,14 @@ local function refreshAmmo()
 	end
 	lastAmmo, lastCapacity = ammo, capacity
 	for _, c in refs.AmmoRow:GetChildren() do
-		if c:IsA("Frame") then
+		if c:IsA("Frame") or c:IsA("TextLabel") then
 			c:Destroy()
 		end
+	end
+	if capacity > 6 then
+		-- Too many rounds for pips (the ray gun): show a counter.
+		label({ Parent = refs.AmmoRow, Size = UDim2.fromOffset(120, 20), Font = FONT_BOLD, TextXAlignment = Enum.TextXAlignment.Left, Text = ("%d / %d"):format(ammo, capacity) })
+		return
 	end
 	for i = 1, capacity do
 		new("Frame", {
@@ -602,9 +699,17 @@ function Interface.Update()
 	end
 	refs.SlotsLabel.Text = table.concat(slots, "   ")
 
+	for kind, pill in refs.PowerPills do
+		local left = (gameState:GetAttribute("PU_" .. kind) or 0) - t
+		pill.Visible = left > 0
+		if left > 0 then
+			pill.Text = ("%s  %ds"):format(Config.Drops.Kinds[kind].Name, math.ceil(left))
+		end
+	end
+
 	local mouse = UserInputService:GetMouseLocation()
 	refs.Crosshair.Position = UDim2.fromOffset(mouse.X, mouse.Y)
-	refs.Crosshair.Visible = alive and not shopOpen
+	refs.Crosshair.Visible = alive and not shopOpen and inputMode == "Mouse"
 	UserInputService.MouseIconEnabled = shopOpen or not alive
 end
 

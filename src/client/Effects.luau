@@ -16,6 +16,7 @@ local folder = workspace:WaitForChild("Effects")
 local SOUNDS = {
 	Musket = "rbxasset://sounds/Rocket shot.wav",
 	Slash = "rbxasset://sounds/swordslash.wav",
+	Pickup = "rbxasset://sounds/electronicpingshort.wav",
 	Hit = "rbxasset://sounds/collide.wav",
 }
 
@@ -72,19 +73,40 @@ local function smoke(pos: Vector3, size: number, duration: number)
 	TweenService:Create(puff, TweenInfo.new(duration), { Position = pos + Vector3.new(math.random() - 0.5, 2, math.random() - 0.5) }):Play()
 end
 
-local function tracer(from: Vector3, to: Vector3, color: Color3)
+local function tracer(from: Vector3, to: Vector3, color: Color3, thickness: number?)
 	local length = (to - from).Magnitude
 	if length < 0.5 then
 		return
 	end
-	local line = basicPart(Vector3.new(0.15, 0.15, length), color, Enum.Material.Neon)
+	local w = thickness or 0.15
+	local line = basicPart(Vector3.new(w, w, length), color, Enum.Material.Neon)
 	line.CFrame = CFrame.lookAt(from, to) * CFrame.new(0, 0, -length / 2)
 	line.Transparency = 0.2
 	line.Parent = folder
 	fadeOut(line, 0.18)
 end
 
+local RAY_GREEN = Color3.fromRGB(90, 255, 120)
+
+-- The ray gun: a fat green beam with a zap instead of powder smoke.
+local function rayShot(from: Vector3, ends: { Vector3 })
+	local flash = basicPart(Vector3.one * 1.6, RAY_GREEN, Enum.Material.Neon)
+	flash.Shape = Enum.PartType.Ball
+	flash.Position = from
+	flash.Parent = folder
+	fadeOut(flash, 0.15, Vector3.one * 3)
+	for _, e in ends do
+		tracer(from, e, RAY_GREEN, 0.5)
+		tracer(from, e, Color3.new(1, 1, 1), 0.15)
+	end
+	sound(SOUNDS.Musket, from, 0.5, 2.2)
+end
+
 local function shot(from: Vector3, ends: { Vector3 }, team: string)
+	if team == "Ray" then
+		rayShot(from, ends)
+		return
+	end
 	local flash = basicPart(Vector3.one * 1.2, Color3.fromRGB(255, 200, 90), Enum.Material.Neon)
 	flash.Shape = Enum.PartType.Ball
 	flash.Position = from
@@ -201,6 +223,52 @@ local function slash(pos: Vector3, dir: Vector3)
 end
 
 -- Make every tagged flame light flicker.
+-- A power-up was collected: a burst of coloured light and a chime.
+local function powerupBurst(pos: Vector3, color: Color3)
+	local ring = basicPart(Vector3.new(0.3, 2, 2), color, Enum.Material.Neon)
+	ring.Shape = Enum.PartType.Cylinder
+	ring.CFrame = CFrame.new(pos.X, 1, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+	ring.Transparency = 0.2
+	ring.Parent = folder
+	fadeOut(ring, 0.8, Vector3.new(0.3, 30, 30))
+	local orb = basicPart(Vector3.one * 2, color, Enum.Material.Neon)
+	orb.Shape = Enum.PartType.Ball
+	orb.Position = pos + Vector3.new(0, 3, 0)
+	orb.Parent = folder
+	fadeOut(orb, 0.6, Vector3.one * 10)
+	sound(SOUNDS.Pickup, nil, 0.8, 1)
+end
+
+-- Drop tokens spin, bob and blink when about to vanish.
+local function animateDrops()
+	local drops = workspace:WaitForChild("Drops", 30)
+	if not drops then
+		return
+	end
+	RunService.RenderStepped:Connect(function()
+		local t = os.clock()
+		local serverNow = workspace:GetServerTimeNow()
+		for _, model in drops:GetChildren() do
+			local core = model:FindFirstChild("Core") :: BasePart?
+			local ring = model:FindFirstChild("Ring") :: BasePart?
+			if core and ring then
+				local base = model:GetAttribute("Base")
+				if typeof(base) ~= "Vector3" then
+					base = core.Position
+					model:SetAttribute("Base", base)
+				end
+				local pos = (base :: Vector3) + Vector3.new(0, math.sin(t * 3) * 0.5, 0)
+				core.CFrame = CFrame.new(pos) * CFrame.Angles(0, t * 2, 0)
+				ring.CFrame = CFrame.new(pos) * CFrame.Angles(0, t * 3, math.rad(90) + math.sin(t * 2) * 0.6)
+				local left = (model:GetAttribute("Expires") or math.huge) - serverNow
+				local hidden = left < 5 and math.floor(t * 6) % 2 == 0
+				core.Transparency = if hidden then 0.8 else 0
+				ring.Transparency = if hidden then 0.9 else 0.4
+			end
+		end
+	end)
+end
+
 local function startFlicker()
 	local t0 = os.clock()
 	RunService.RenderStepped:Connect(function()
@@ -217,6 +285,7 @@ end
 
 function Effects.Init()
 	startFlicker()
+	task.spawn(animateDrops)
 	local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Effect") :: RemoteEvent
 	remote.OnClientEvent:Connect(function(kind: string, ...)
 		if kind == "Shot" then
@@ -238,6 +307,8 @@ function Effects.Init()
 			cannonWarn(...)
 		elseif kind == "Slash" then
 			slash(...)
+		elseif kind == "Powerup" then
+			powerupBurst(...)
 		end
 	end)
 end

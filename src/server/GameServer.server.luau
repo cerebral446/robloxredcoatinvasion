@@ -49,6 +49,7 @@ local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 local Units = require(script.Parent:WaitForChild("Units"))
 local PlayerManager = require(script.Parent:WaitForChild("PlayerManager"))
 local Leaderboard = require(script.Parent:WaitForChild("Leaderboard"))
+local Powerups = require(script.Parent:WaitForChild("Powerups"))
 
 task.spawn(Leaderboard.Init, gameState)
 
@@ -58,6 +59,7 @@ PlayerManager.Init(gameState, function()
 	local phase = gameState:GetAttribute("Phase")
 	return phase == "Intermission" or phase == "Waiting"
 end)
+Powerups.Init(gameState)
 
 local function now(): number
 	return workspace:GetServerTimeNow()
@@ -82,6 +84,9 @@ end
 clearBoss()
 
 Units.OnKill = function(killer, unit)
+	if unit.Team == "Red" then
+		Powerups.OnRedcoatKilled(unit)
+	end
 	if unit.Def.Boss then
 		-- The general is down: his whole army loses heart.
 		local name = gameState:GetAttribute("BossName") or "The general"
@@ -304,6 +309,8 @@ local function resetGame()
 	gameState:SetAttribute("ModeLocked", false)
 	gameState:SetAttribute("FinalWave", Config.Rounds.FinalWave)
 	clearBoss()
+	Powerups.Reset()
+	Powerups.SetBossRound(false)
 	table.clear(modeVotes)
 	for _, p in Players:GetPlayers() do
 		p:SetAttribute("ModeVote", nil)
@@ -381,7 +388,12 @@ while true do
 			gameState:SetAttribute("FinalWave", if isEndless() then 0 else Config.Rounds.FinalWave)
 			FX.Announce(if isEndless() then "ENDLESS MODE: hold out as long as you can!" else "CAMPAIGN: survive 15 waves!", Color3.fromRGB(255, 220, 120))
 		end
+		Powerups.StartWave()
+		-- Boss rounds wake the contraption behind the church.
+		Powerups.SetBossRound(Config.GetGeneral(wave) ~= nil)
 		outcome = runWave(wave)
+		-- The ray gun only lasts for the round it was found in.
+		Powerups.SetBossRound(false)
 		if outcome == "Lost" then
 			break
 		end

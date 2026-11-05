@@ -241,6 +241,24 @@ end
 
 ---------------------------------------------------------------------------
 
+function LeaderboardUI.Toggle()
+	visible = not visible
+	panel.Visible = visible
+end
+
+local touchLayoutSeen = false
+-- On touch screens the left-hand HUD panels sit at the top, so the vote panel
+-- moves below them, and the board starts hidden (it has a "Board" button).
+function LeaderboardUI.SetInputMode(mode: string)
+	local touch = mode == "Touch"
+	votePanel.Position = if touch then UDim2.new(0, 16, 0, 276) else UDim2.new(0, 16, 0, 150)
+	if touch and not touchLayoutSeen then
+		touchLayoutSeen = true
+		visible = false
+		panel.Visible = false
+	end
+end
+
 function LeaderboardUI.Init()
 	local gui = new("ScreenGui", {
 		Name = "Leaderboard",
@@ -248,13 +266,21 @@ function LeaderboardUI.Init()
 		IgnoreGuiInset = true,
 		Parent = player:WaitForChild("PlayerGui"),
 	})
+	-- Same screen-size scaling as the HUD.
+	local scale = new("UIScale", { Parent = gui })
+	local camera = workspace.CurrentCamera
+	local function rescale()
+		local vp = camera.ViewportSize
+		scale.Scale = math.clamp(math.min(vp.X / 1280, vp.Y / 720), 0.55, 1)
+	end
+	rescale()
+	camera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 	buildPanel(gui)
 	buildVote(gui)
 
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if not processed and input.KeyCode == Enum.KeyCode.L then
-			visible = not visible
-			panel.Visible = visible
+			LeaderboardUI.Toggle()
 		end
 	end)
 

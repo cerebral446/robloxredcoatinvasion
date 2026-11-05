@@ -1,4 +1,5 @@
--- Redcoat Invasion client: top-down camera, mouse aiming and input.
+-- Redcoat Invasion client: top-down camera, aiming and input.
+-- Mouse + keyboard live here; touch and gamepad come from the Controls module.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -13,6 +14,7 @@ local Interface = require(script.Parent:WaitForChild("Interface"))
 local Townsfolk = require(script.Parent:WaitForChild("Townsfolk"))
 local UnitAnimator = require(script.Parent:WaitForChild("UnitAnimator"))
 local LeaderboardUI = require(script.Parent:WaitForChild("LeaderboardUI"))
+local Controls = require(script.Parent:WaitForChild("Controls"))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -74,6 +76,22 @@ local function mouseAimPoint(): Vector3?
 	return ray.Origin + ray.Direction * t
 end
 
+-- Twin-stick aiming (touch / gamepad): the last direction the aim stick
+-- pointed, or the direction of travel when the stick is released.
+local lastStickDir: Vector3? = nil
+
+local function aimPoint(): Vector3?
+	if Controls.GetMode() == "Mouse" then
+		return mouseAimPoint()
+	end
+	local _, root = getCharacter()
+	local dir = Controls.GetAimDirection() or lastStickDir
+	if not root or not dir then
+		return nil
+	end
+	return Vector3.new(root.Position.X, Config.ShotHeight, root.Position.Z) + dir * 40
+end
+
 UserInputService.InputChanged:Connect(function(input, processed)
 	if input.UserInputType == Enum.UserInputType.MouseWheel and not processed then
 		cameraHeight = math.clamp(cameraHeight - input.Position.Z * 6, MIN_HEIGHT, MAX_HEIGHT)
@@ -87,7 +105,7 @@ RunService:BindToRenderStep("RedcoatCamera", Enum.RenderPriority.Camera.Value + 
 	if root and hum and hum.Health > 0 then
 		target = root.Position
 		-- Peek slightly toward the cursor so you can see further ahead.
-		local aim = mouseAimPoint()
+		local aim = aimPoint()
 		if aim then
 			local lean = Vector3.new(aim.X - target.X, 0, aim.Z - target.Z)
 			if lean.Magnitude > 40 then
@@ -105,12 +123,18 @@ RunService:BindToRenderStep("RedcoatCamera", Enum.RenderPriority.Camera.Value + 
 	camera.FieldOfView = 60
 end)
 
--- Face the mouse.
+-- Face where we're aiming.
 RunService.RenderStepped:Connect(function()
 	local _, root, hum = getCharacter()
 	if root and hum and hum.Health > 0 and not Interface.IsShopOpen() then
 		hum.AutoRotate = false
-		local aim = mouseAimPoint()
+		local stick = Controls.GetAimDirection()
+		if stick then
+			lastStickDir = stick
+		elseif Controls.GetMode() ~= "Mouse" and hum.MoveDirection.Magnitude > 0.1 then
+			lastStickDir = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z).Unit
+		end
+		local aim = aimPoint()
 		if aim then
 			local flatAim = Vector3.new(aim.X, root.Position.Y, aim.Z)
 			if (flatAim - root.Position).Magnitude > 0.5 then
@@ -185,7 +209,7 @@ local function tryFire()
 	if not root or not hum or hum.Health <= 0 or Interface.IsShopOpen() then
 		return
 	end
-	local aim = mouseAimPoint()
+	local aim = aimPoint()
 	if aim then
 		fireRemote:FireServer(aim)
 	end
@@ -196,6 +220,7 @@ local WEAPON_KEYS = {
 	[Enum.KeyCode.Two] = 2,
 	[Enum.KeyCode.Three] = 3,
 	[Enum.KeyCode.Four] = 4,
+	[Enum.KeyCode.Five] = 5,
 }
 
 local function weaponBySlot(slot: number): string?
@@ -205,6 +230,30 @@ local function weaponBySlot(slot: number): string?
 		end
 	end
 	return nil
+end
+
+-- Next owned weapon (touch "Swap" button / controller Y).
+local function cycleWeapon()
+	local owned = {}
+	for id, w in Config.Weapons do
+		if player:GetAttribute("Owns_" .. id) then
+			table.insert(owned, { Id = id, Order = w.Order })
+		end
+	end
+	table.sort(owned, function(a, b)
+		return a.Order < b.Order
+	end)
+	if #owned < 2 then
+		return
+	end
+	local current = player:GetAttribute("Weapon")
+	for i, w in owned do
+		if w.Id == current then
+			equipRemote:FireServer(owned[i % #owned + 1].Id)
+			return
+		end
+	end
+	equipRemote:FireServer(owned[1].Id)
 end
 
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -263,11 +312,33 @@ end)
 task.spawn(function()
 	while true do
 		task.wait(0.15)
-		if triggerHeld and (player:GetAttribute("Ammo") or 0) > 0 and (player:GetAttribute("ReloadEnd") or 0) == 0 then
+		if (triggerHeld or Controls.IsFiring()) and (player:GetAttribute("Ammo") or 0) > 0 and (player:GetAttribute("ReloadEnd") or 0) == 0 then
 			tryFire()
 		end
 	end
 end)
+
+Controls.Init({
+	Reload = function()
+		reloadRemote:FireServer()
+	end,
+	Melee = function()
+		if not Interface.IsShopOpen() then
+			meleeRemote:FireServer()
+		end
+	end,
+	SetSprint = setSprint,
+	IsSprinting = function()
+		return sprinting
+	end,
+	CycleWeapon = cycleWeapon,
+	ToggleShop = Interface.ToggleShop,
+	ToggleBoard = LeaderboardUI.Toggle,
+	ModeChanged = function(mode: string)
+		Interface.SetInputMode(mode)
+		LeaderboardUI.SetInputMode(mode)
+	end,
+})
 
 -- No jumping in a top-down shooter; free up Space.
 ContextActionService:BindActionAtPriority("BlockJump", function()
